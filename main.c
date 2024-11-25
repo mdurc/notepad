@@ -1,15 +1,53 @@
 
+/*** includes ***/
+#include <unistd.h> /* read, write, file descriptors */
+#include <termios.h> /* terminal customizing */
+#include <stdio.h> /* printf, perror */
+#include <stdlib.h> /* exit, atexit */
+#include <sys/ioctl.h> /* ioctl, TIOCGWINSZ */
 
-#include <ctype.h>
-#include <unistd.h>
-#include <termios.h>
-#include <stdio.h>
-#include <stdlib.h>
-void error(const char* s);
+/*** defines ***/
+// for 'q', ascii value is 113, and ctrl-q is 17
+// 113 in binary is 0111 0001 : 0x71
+// 17  in binary is 0001 0001, which is a bit mask of 0x1F
+// Macro for CTRL values:
+#define CTRL_KEY(k) ((k) & 0x1F)
 
-struct termios term_defaults;
+
+/*** function prototypes ***/
+void refresh_screen();
+void clear_screen();
+
+/*** data ***/
+struct state {
+    struct termios term_defaults;
+    int screen_rows;
+    int screen_cols;
+} state;
+
+
+/*** terminal data ***/
+int get_window_size(int* rows, int* cols){
+    struct winsize ws; // from sys/ioctl.h
+    // TIOCGWINSZ: Terminal IOCtl Get WINdow SiZe
+    // IOCtl: Input/Output Control
+    if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
+        return -1;
+    }
+    *cols = ws.ws_col;
+    *rows = ws.ws_row;
+    return 0;
+}
+
+/*** terminal setup **/
+void error(const char* s){
+    clear_screen();
+    perror(s);
+    exit(1); // indicate failure with non-zero
+}
+
 void disable_raw(){
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &term_defaults) == -1){
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &state.term_defaults) == -1){
         error("tcsetattr");
     }
     printf("Disabling raw mode\n");
@@ -19,11 +57,11 @@ void disable_raw(){
 // so we can read bytes as they are entered in stdin
 // and don't have to wait for "enter"
 void enable_raw(){
-    if (tcgetattr(STDIN_FILENO, &term_defaults) == -1) error("tcgetattr");
+    if (tcgetattr(STDIN_FILENO, &state.term_defaults) == -1) error("tcgetattr");
     atexit(disable_raw); // accepts a function ptr void (*) (void)
 
     // make a struct to retrieve the attributes of terminal
-    struct termios attr = term_defaults;
+    struct termios attr = state.term_defaults;
     // the attributes of termios struct include a c_lflag for local modes of type
     // "tcflag_t", which specifies a ton of flags, one flag for each bit
     // We want to use bit-masking to set specific attribute flags
@@ -42,17 +80,19 @@ void enable_raw(){
     attr.c_iflag &= ~(BRKINT | INPCK | ISTRIP);
     attr.c_cflag |= (CS8); // sets the character size to 8 bits per byte (default)
 
-    // ----
+    // ---- I think this is optional for a visual effect:
     // by default, VTIME is 0 and VMIN is 1, so it blocks processes until an input is registered
     // If we want to simulate some animation, we can use the following, to create a ticking effect
+    // Note that anywhere that uses read() will now continously release '\0' and this will require the use of a while != 1, read
 
     // Set control characters (array of bytes)
     // nbytes specied by read() is the amount of data we hope to get, VMIN is the amount we will settle for.
-    attr.c_cc[VMIN] = 0;
+    //attr.c_cc[VMIN] = 0;
 
     // specifies the time to read "instantaneous" series of inputs before processing it as
     // a combined input data. Processed in tenths of a second. so this is set to 1/10 of a second, or 100 milliseconds.
-    attr.c_cc[VTIME] = 1; // this requires us to rewrite main to process indefinitely
+    //attr.c_cc[VTIME] = 1; // this requires us to rewrite main to process indefinitely
+    // ----
 
 
     // set these changes by flushing stdin and then setting the changes
@@ -60,34 +100,63 @@ void enable_raw(){
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &attr) == -1) error("tcsetattr");
 }
 
-void error(const char* s){
-    perror(s);
-    exit(1); // indicate failure with non-zero
+void init_window(){
+    if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
+}
+
+/*** input ***/
+// read 1 byte from STDIN, store in address of char c
+void keypress_handler(){
+    char c;
+    if(read(STDIN_FILENO, &c, 1) == -1) error("read");
+
+    switch(c){
+        case CTRL_KEY('c'):
+            clear_screen();
+            exit(0);
+            break;
+        default:
+            printf("%d ('%c')\r\n", c, c);
+            break;
+    }
+}
+
+/*** output ***/
+void draw_rows(){
+    int i;
+    for(i=0;i<state.screen_cols; ++i){
+        write(STDOUT_FILENO, "~\r\n", 3);
+    }
+}
+
+void clear_screen(){
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
+}
+
+void refresh_screen(){
+    /* write 4 bytes to stdout
+       - 1 byte : \x1b: the escape character, 27 in decimal
+       - 3 bytes: [2J : J is erase in display, and the argument (2) says to clear the
+       entire screen ([1J) would clear up to the cursor
+   */
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3); // reposition cursor to top of screen
+    // for coordinates: <esc>[12;40H, arguments separated by a colon
+
+    draw_rows();
+    write(STDOUT_FILENO, "\x1b[H", 3); // reposition cursor to top of screen
 }
 
 
+/*** program init ***/
 int main(){
     enable_raw();
-    char c;
-    // read 1 byte from STDIN, store in address of char c
-    // - Issue is that the terminal starts in cannonical mode, so the "reading" only ever occurs once the user presses "Enter"
-    // "stdin" is a FILE pointer, while STDIN_FILENO is a number
-    //#define	 STDIN_FILENO	0	/* standard input file descriptor */
-    //STDOUT is 1, and STDERR is 2. Just as in linux with commands like: ./notes 2> err.txt
+    init_window();
+
     while (1){
-        c = '\0';
-        if(read(STDIN_FILENO, &c, 1) == -1) error("read");
-        // iscntrl are types like tab or newline, or unprintable characters
-        if(iscntrl(c)){
-            // note that some of these, like arrow-keys, are escape sequences, all starting with a "27" byte and containing 2 more bytes.
-            // Ex. if you just press 'esc', then it will output "27" alone.
-            // Ex. 'Enter' is 10
-            printf("%d\r\n", c);
-        }else{
-            // print as ascii value and then as character
-            printf("%d ('%c')\r\n", c, c);
-        }
-        if(c == 'q') break;
+        refresh_screen();
+        keypress_handler();
     }
 
     return 0;
