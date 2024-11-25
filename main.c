@@ -25,7 +25,9 @@ void enable_raw(){
     // "tcflag_t", which specifies a ton of flags, one flag for each bit
     // We want to use bit-masking to set specific attribute flags
     // #define ECHO 0x00000008, so in order to disable it, mask with &, and ~ECHO
-    attr.c_lflag &= ~(ECHO | ICANON);
+    // ICANON will allow us to read byte-by-byte
+    // ISIG will allow us to disable signals like ctrl-c and ctrl-z
+    attr.c_lflag &= ~(ECHO | ICANON | ISIG);
 
     // set these changes by flushing stdin and then setting the changes
     // if there is leftover input, it will be flushed and wont be fed into the terminal as a bunch of commands
@@ -44,6 +46,9 @@ int main(){
     while (read(STDIN_FILENO, &c, 1) == 1 && c!='q'){
         // iscntrl are types like tab or newline, or unprintable characters
         if(iscntrl(c)){
+            // note that some of these, like arrow-keys, are escape sequences, all starting with a "27" byte and containing 2 more bytes.
+            // Ex. if you just press 'esc', then it will output "27" alone.
+            // Ex. 'Enter' is 10
             printf("%d\n", c);
         }else{
             // print as ascii value and then as character
