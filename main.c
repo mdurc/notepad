@@ -50,7 +50,7 @@ void disable_raw(){
     if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &state.term_defaults) == -1){
         error("tcsetattr");
     }
-    printf("Disabling raw mode\n");
+    //printf("Disabling raw mode\n");
 }
 
 // disables flags for cannonical mode
@@ -102,6 +102,7 @@ void enable_raw(){
 
 void init_window(){
     if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
+    //printf("%d by %d\r\n", state.screen_rows, state.screen_cols);
 }
 
 /*** input ***/
@@ -124,17 +125,12 @@ void keypress_handler(){
 /*** output ***/
 void draw_rows(){
     int i;
-    for(i=0;i<state.screen_cols; ++i){
+    for(i=0;i<state.screen_rows; ++i){
         write(STDOUT_FILENO, "~\r\n", 3);
     }
 }
 
 void clear_screen(){
-    write(STDOUT_FILENO, "\x1b[2J", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
-}
-
-void refresh_screen(){
     /* write 4 bytes to stdout
        - 1 byte : \x1b: the escape character, 27 in decimal
        - 3 bytes: [2J : J is erase in display, and the argument (2) says to clear the
@@ -143,7 +139,10 @@ void refresh_screen(){
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3); // reposition cursor to top of screen
     // for coordinates: <esc>[12;40H, arguments separated by a colon
+}
 
+void refresh_screen(){
+    clear_screen();
     draw_rows();
     write(STDOUT_FILENO, "\x1b[H", 3); // reposition cursor to top of screen
 }
