@@ -185,7 +185,11 @@ void ab_free(struct abuf* ab){
 void draw_rows(struct abuf* ab){
     int i;
     for(i=0;i<state.screen_rows; ++i){
-        ab_append(ab, "~\r\n", 3);
+        ab_append(ab, "~", 1);
+        ab_append(ab, "\x1b[K", 3); // erase to the right of current line
+        if(i < state.screen_rows - 1){
+            ab_append(ab, "\r\n", 2); // dont do newline at bottom
+        }
     }
 }
 
@@ -196,7 +200,7 @@ void clear_screen(struct abuf* ab){
        entire screen ([1J) would clear up to the cursor
    */
 
-    ab_append(ab, "\x1b[2J", 4);
+    //ab_append(ab, "\x1b[2J", 4); // clear entire screen
     ab_append(ab, "\x1b[H", 3); // reposition cursor to top of screen
     // for coordinates: <esc>[12;40H, arguments separated by a colon
 }
@@ -219,6 +223,7 @@ void refresh_screen(){
 int main(){
     enable_raw();
     init_window();
+    write(STDOUT_FILENO, "\x1b[2J", 4);
 
     while (1){
         refresh_screen();
