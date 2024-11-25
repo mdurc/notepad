@@ -5,10 +5,13 @@
 #include <termios.h>
 #include <stdio.h>
 #include <stdlib.h>
+void error(const char* s);
 
 struct termios term_defaults;
 void disable_raw(){
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &term_defaults);
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &term_defaults) == -1){
+        error("tcsetattr");
+    }
     printf("Disabling raw mode\n");
 }
 
@@ -16,7 +19,7 @@ void disable_raw(){
 // so we can read bytes as they are entered in stdin
 // and don't have to wait for "enter"
 void enable_raw(){
-    tcgetattr(STDIN_FILENO, &term_defaults);
+    if (tcgetattr(STDIN_FILENO, &term_defaults) == -1) error("tcgetattr");
     atexit(disable_raw); // accepts a function ptr void (*) (void)
 
     // make a struct to retrieve the attributes of terminal
@@ -54,9 +57,13 @@ void enable_raw(){
 
     // set these changes by flushing stdin and then setting the changes
     // if there is leftover input, it will be flushed and wont be fed into the terminal as a bunch of commands
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &attr);
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &attr) == -1) error("tcsetattr");
 }
 
+void error(const char* s){
+    perror(s);
+    exit(1); // indicate failure with non-zero
+}
 
 
 int main(){
@@ -69,7 +76,7 @@ int main(){
     //STDOUT is 1, and STDERR is 2. Just as in linux with commands like: ./notes 2> err.txt
     while (1){
         c = '\0';
-        read(STDIN_FILENO, &c, 1);
+        if(read(STDIN_FILENO, &c, 1) == -1) error("read");
         // iscntrl are types like tab or newline, or unprintable characters
         if(iscntrl(c)){
             // note that some of these, like arrow-keys, are escape sequences, all starting with a "27" byte and containing 2 more bytes.
