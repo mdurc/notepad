@@ -1,6 +1,5 @@
 
 /*** includes ***/
-#include <ctype.h>
 #include <string.h>
 #include <unistd.h> /* read, write, file descriptors */
 #include <termios.h> /* terminal customizing */
@@ -19,14 +18,23 @@
 /*** function prototypes ***/
 struct abuf;
 void refresh_screen();
-void clear_screen(struct abuf* ab);
 void keypress_handler();
 
 /*** data ***/
+
+// editor row
+typedef struct erow {
+    int size;
+    char* buf;
+} erow;
+
 struct state {
-    struct termios term_defaults;
+    int cx, cy; // cursor positions
     int screen_rows;
     int screen_cols;
+    int num_rows;
+    erow row;
+    struct termios term_defaults;
 } state;
 
 
@@ -137,12 +145,71 @@ void enable_raw(){
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &attr) == -1) error("tcsetattr");
 }
 
-void init_window(){
+void init_editor(){
+    state.cx = 0;
+    state.cy = 0;
+    state.num_rows = 0;
     if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
     //printf("\r\n%d by %d\r\n", state.screen_rows, state.screen_cols);
 }
 
+
+/*** file i/o ***/
+void editor_open(char* filename){
+    FILE* fp = fopen(filename, "r");
+    if (!fp) error("fopen");
+
+    char* line = NULL;
+    size_t linecap = 0;
+    ssize_t length;
+    length = getline(&line, &linecap, fp); // using getline() because we don't know how much memory to allocate per line
+    if (length == -1) error("getline");
+
+    // get rid of any trailing whitespace by reducing length
+    while(length > 0 &&
+         (line[length-1] == '\n' ||
+          line[length-1]=='\r')){
+        --length;
+    }
+
+    state.row.size = length;
+    state.row.buf = malloc(length + 1); // room for null char
+    memcpy(state.row.buf, line, length);
+    state.row.buf[length] = '\0';
+    state.num_rows = 1;
+
+    free(line);
+    fclose(fp);
+}
+
 /*** input ***/
+
+void move_cursor(char c){
+    switch (c) {
+        case 'h':
+            if(state.cx != 0){
+                --state.cx;
+            }
+            break;
+        case 'j':
+            if(state.cy != state.screen_rows - 1){
+                ++state.cy;
+            }
+            break;
+        case 'k':
+            if(state.cy != 0){
+                --state.cy;
+            }
+            break;
+        case 'l':
+            if(state.cx != state.screen_cols - 1){
+                ++state.cx;
+            }
+            break;
+    }
+}
+
+
 // read 1 byte from STDIN, store in address of char c
 void keypress_handler(){
     char c;
@@ -152,6 +219,13 @@ void keypress_handler(){
         case CTRL_KEY('c'):
             //clear_screen();
             exit(0);
+            break;
+        case 'h':
+        case 'j':
+        case 'k':
+        case 'l':
+            move_cursor(c);
+            // TODO: delete key
             break;
         default:
             printf("%d ('%c')\r\n", c, c);
@@ -182,10 +256,17 @@ void ab_free(struct abuf* ab){
 }
 
 /*** output ***/
-void draw_rows(struct abuf* ab){
+void editor_draw_rows(struct abuf* ab){
     int i;
     for(i=0;i<state.screen_rows; ++i){
-        ab_append(ab, "~", 1);
+        if(i >= state.num_rows){
+            // check if we are outside the range of the currently edited number of rows
+            ab_append(ab, "~", 1);
+        }else{
+            int len = state.row.size;
+            if(len > state.screen_cols) len = state.screen_cols;
+            ab_append(ab, state.row.buf, len);
+        }
         ab_append(ab, "\x1b[K", 3); // erase to the right of current line
         if(i < state.screen_rows - 1){
             ab_append(ab, "\r\n", 2); // dont do newline at bottom
@@ -193,25 +274,22 @@ void draw_rows(struct abuf* ab){
     }
 }
 
-void clear_screen(struct abuf* ab){
-    /* write 4 bytes to stdout
-       - 1 byte : \x1b: the escape character, 27 in decimal
-       - 3 bytes: [2J : J is erase in display, and the argument (2) says to clear the
-       entire screen ([1J) would clear up to the cursor
-   */
-
-    //ab_append(ab, "\x1b[2J", 4); // clear entire screen
-    ab_append(ab, "\x1b[H", 3); // reposition cursor to top of screen
-    // for coordinates: <esc>[12;40H, arguments separated by a colon
-}
-
 void refresh_screen(){
     struct abuf ab = ABUF_INIT;
 
     ab_append(&ab, "\x1b[?25l", 6); // hide cursor
-    clear_screen(&ab);
-    draw_rows(&ab);
     ab_append(&ab, "\x1b[H", 3); // reposition cursor to top of screen
+    //clear_screen(&ab);
+
+    editor_draw_rows(&ab);
+
+    // the terminal uses 1-indexing, so (1,1) is the top left corner
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", state.cy + 1, state.cx + 1);
+    // append this escape sequence, so that we move cursor to the designated location
+    ab_append(&ab, buf, strlen(buf));
+
+
     ab_append(&ab, "\x1b[?25h", 6); // show cursor
 
     write(STDOUT_FILENO, ab.b, ab.len);
@@ -220,9 +298,12 @@ void refresh_screen(){
 
 
 /*** program init ***/
-int main(){
+int main(int argc, char** argv){
     enable_raw();
-    init_window();
+    init_editor();
+    if(argc >= 2){
+        editor_open(argv[1]);
+    }
     write(STDOUT_FILENO, "\x1b[2J", 4);
 
     while (1){
