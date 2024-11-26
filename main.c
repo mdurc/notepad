@@ -13,11 +13,12 @@
 // 17  in binary is 0001 0001, which is a bit mask of 0x1F
 // Macro for CTRL values:
 #define CTRL_KEY(k) ((k) & 0x1F)
+#define TAB_STOP 8
 
 
 /*** function prototypes ***/
 struct abuf;
-void refresh_screen();
+void editor_refresh_screen();
 void editor_keypress_handler();
 
 /*** data ***/
@@ -25,11 +26,16 @@ void editor_keypress_handler();
 // editor row
 typedef struct erow {
     int size;
-    char* buf;
+    int rsize;
+    char* chars;
+    char* render;
 } erow;
 
 struct state {
-    int cx, cy; // cursor positions
+    int cx, cy; // cursor positions (now relative to the file)
+    int rx;     // index for render field, used for adjusting for tabs
+    int rowoff; // row offset for vertical scrolling
+    int coloff; // col offset for horizontal scrolling
     int screen_rows;
     int screen_cols;
     int num_rows;
@@ -148,6 +154,9 @@ void enable_raw(){
 void init_editor(){
     state.cx = 0;
     state.cy = 0;
+    state.rx = 0;
+    state.rowoff = 0;
+    state.coloff = 0;
     state.num_rows = 0;
     state.row = NULL;
     if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
@@ -155,15 +164,55 @@ void init_editor(){
 }
 
 /*** row operations ***/
+int editor_row_cx_to_rx(erow* row, int cx){
+    int rx = 0;
+    int i;
+    for(i=0; i<cx; ++i){
+        // find how many spaces until the end of the current tabstop, even if we are in the middle
+        if(row->chars[i] == '\t')
+            rx += (TAB_STOP -1) - (rx % TAB_STOP);
+        ++rx;
+    }
+    return rx;
+}
+
+void editor_update_row(erow* row){
+    int tabs = 0;
+    int i, j;
+    for (j = 0; j < row->size; ++j){
+        if (row->chars[j] == '\t') ++tabs;
+    }
+    free(row->render);
+    // tabs will take up a maximum of 8 characters
+    // row->size already counts 1, so do tabs*7
+    row->render = malloc(row->size + tabs*(TAB_STOP-1) + 1);
+
+    for(i=0, j=0;j<row->size;++j){
+        if (row->chars[j] == '\t') {
+            row->render[i++] = ' ';
+            while (i % TAB_STOP != 0) row->render[i++] = ' ';
+        } else {
+            row->render[i++] = row->chars[j];
+        }
+    }
+    row->render[i] = '\0';
+    row->rsize = i;
+}
+
 void editor_append_row(char* line, size_t len){
     // allocate space for a new row
     state.row = realloc(state.row, sizeof(erow) * (state.num_rows + 1));
 
     int curr = state.num_rows;
     state.row[curr].size = len;
-    state.row[curr].buf = malloc(len + 1); // room for null char
-    memcpy(state.row[curr].buf, line, len);
-    state.row[curr].buf[len] = '\0';
+    state.row[curr].chars = malloc(len + 1); // room for null char
+    memcpy(state.row[curr].chars, line, len);
+    state.row[curr].chars[len] = '\0';
+
+    state.row[curr].rsize = 0;
+    state.row[curr].render = NULL;
+    editor_update_row(&state.row[curr]);
+
     ++state.num_rows;
 }
 
@@ -197,14 +246,22 @@ void editor_open(char* filename){
 /*** input ***/
 
 void move_cursor(char c){
+
+    erow* row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
+    if(!row) error("moving on non-row"); // I have it setup so that row should never be NULL
     switch (c) {
         case 'h':
             if(state.cx != 0){
                 --state.cx;
+            }else if(state.cy > 0){
+                --state.cy;
+                state.cx = state.row[state.cy].size;
             }
             break;
         case 'j':
-            if(state.cy != state.screen_rows - 1){
+            // num rows is the amount of rows in the current file being viewed
+            // so if there is no file, we cannot move down
+            if(state.cy < (state.num_rows-1)){
                 ++state.cy;
             }
             break;
@@ -214,10 +271,21 @@ void move_cursor(char c){
             }
             break;
         case 'l':
-            if(state.cx != state.screen_cols - 1){
+            if(state.cx < row->size){
                 ++state.cx;
+            }else if(state.cy < (state.num_rows-1)){
+                ++state.cy;
+                state.cx = 0;
             }
             break;
+    }
+    // snap the horizontal to the end of each line
+    row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
+    if(!row) error("moving on non-row");
+
+    int rowlen = row ? row->size : 0;
+    if (state.cx > rowlen) {
+        state.cx = rowlen;
     }
 }
 
@@ -232,6 +300,14 @@ void editor_keypress_handler(){
             //clear_screen();
             exit(0);
             break;
+        case '0':
+            state.cx = 0;
+            break;
+        case '$':
+            if(state.cy < state.num_rows){
+                state.cx = state.row[state.cy].size;
+            }
+            break;
         case 'h':
         case 'j':
         case 'k':
@@ -240,7 +316,6 @@ void editor_keypress_handler(){
             // TODO: delete key
             break;
         default:
-            printf("%d ('%c')\r\n", c, c);
             break;
     }
 }
@@ -268,16 +343,50 @@ void ab_free(struct abuf* ab){
 }
 
 /*** output ***/
+
+void editor_scroll() {
+    state.rx = 0;
+    if (state.cy < state.num_rows) {
+        state.rx = editor_row_cx_to_rx(state.row + state.cy, state.cx);
+    }
+
+    // Vertical -----
+    // Since cy is relative to the file, we need to subtract
+    // the current file row offset to see if it is off-screen
+    if ((state.cy - state.rowoff) < 0) {
+        state.rowoff = state.cy;
+    }
+
+    // once the cursor position is off the screen of rows,
+    // the rowoff will increment (but since we might have jumped
+    // several lines down, we should calculate the new offset).
+    if ((state.cy - state.rowoff) >= state.screen_rows) {
+        state.rowoff = state.cy - state.screen_rows + 1;
+    }
+
+    // Horizontal -----
+    if((state.rx - state.coloff) < 0){
+        state.coloff = 0;
+    }
+    if((state.rx - state.coloff) >= state.screen_cols){
+        state.coloff = state.rx - state.screen_cols + 1;
+    }
+}
+
 void editor_draw_rows(struct abuf* ab){
     int i;
     for(i=0;i<state.screen_rows; ++i){
+        int filerow = i + state.rowoff;
         if(i >= state.num_rows){
             // check if we are outside the range of the currently edited number of rows
             ab_append(ab, "~", 1);
         }else{
-            int len = state.row[i].size;
+            int len = state.row[filerow].rsize - state.coloff;
+            if(len < 0) len = 0;
             if(len > state.screen_cols) len = state.screen_cols;
-            ab_append(ab, state.row[i].buf, len);
+
+            // include vertical and horizontal offsets (horizontal is by starting the line string at offset
+            ab_append(ab, state.row[filerow].render + state.coloff, len);
         }
         ab_append(ab, "\x1b[K", 3); // erase to the right of current line
         if(i < state.screen_rows - 1){
@@ -286,7 +395,9 @@ void editor_draw_rows(struct abuf* ab){
     }
 }
 
-void refresh_screen(){
+void editor_refresh_screen(){
+    editor_scroll();
+
     struct abuf ab = ABUF_INIT;
 
     ab_append(&ab, "\x1b[?25l", 6); // hide cursor
@@ -297,8 +408,9 @@ void refresh_screen(){
 
     // the terminal uses 1-indexing, so (1,1) is the top left corner
     char buf[32];
-    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", state.cy + 1, state.cx + 1);
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", (state.cy - state.rowoff) + 1, (state.rx - state.coloff) + 1);
     // append this escape sequence, so that we move cursor to the designated location
+    // Note that this is moving the cursor to a position relative to the screen, not the file
     ab_append(&ab, buf, strlen(buf));
 
 
@@ -319,7 +431,7 @@ int main(int argc, char** argv){
     write(STDOUT_FILENO, "\x1b[2J", 4);
 
     while (1){
-        refresh_screen();
+        editor_refresh_screen();
         editor_keypress_handler();
     }
 
