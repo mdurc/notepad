@@ -18,7 +18,7 @@
 /*** function prototypes ***/
 struct abuf;
 void refresh_screen();
-void keypress_handler();
+void editor_keypress_handler();
 
 /*** data ***/
 
@@ -33,7 +33,7 @@ struct state {
     int screen_rows;
     int screen_cols;
     int num_rows;
-    erow row;
+    erow* row;
     struct termios term_defaults;
 } state;
 
@@ -149,8 +149,22 @@ void init_editor(){
     state.cx = 0;
     state.cy = 0;
     state.num_rows = 0;
+    state.row = NULL;
     if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
     //printf("\r\n%d by %d\r\n", state.screen_rows, state.screen_cols);
+}
+
+/*** row operations ***/
+void editor_append_row(char* line, size_t len){
+    // allocate space for a new row
+    state.row = realloc(state.row, sizeof(erow) * (state.num_rows + 1));
+
+    int curr = state.num_rows;
+    state.row[curr].size = len;
+    state.row[curr].buf = malloc(len + 1); // room for null char
+    memcpy(state.row[curr].buf, line, len);
+    state.row[curr].buf[len] = '\0';
+    ++state.num_rows;
 }
 
 
@@ -162,21 +176,19 @@ void editor_open(char* filename){
     char* line = NULL;
     size_t linecap = 0;
     ssize_t length;
-    length = getline(&line, &linecap, fp); // using getline() because we don't know how much memory to allocate per line
-    if (length == -1) error("getline");
+    // using getline() because we don't know how much memory to allocate per line
+    while((length = getline(&line, &linecap, fp)) != -1){
+        if (length == -1) error("getline");
 
-    // get rid of any trailing whitespace by reducing length
-    while(length > 0 &&
-         (line[length-1] == '\n' ||
-          line[length-1]=='\r')){
-        --length;
+        // get rid of any trailing whitespace by reducing length
+        while(length > 0 &&
+             (line[length-1] == '\n' ||
+              line[length-1]=='\r')){
+            --length;
+        }
+
+        editor_append_row(line, length);
     }
-
-    state.row.size = length;
-    state.row.buf = malloc(length + 1); // room for null char
-    memcpy(state.row.buf, line, length);
-    state.row.buf[length] = '\0';
-    state.num_rows = 1;
 
     free(line);
     fclose(fp);
@@ -211,7 +223,7 @@ void move_cursor(char c){
 
 
 // read 1 byte from STDIN, store in address of char c
-void keypress_handler(){
+void editor_keypress_handler(){
     char c;
     if(read(STDIN_FILENO, &c, 1) == -1) error("read");
 
@@ -263,9 +275,9 @@ void editor_draw_rows(struct abuf* ab){
             // check if we are outside the range of the currently edited number of rows
             ab_append(ab, "~", 1);
         }else{
-            int len = state.row.size;
+            int len = state.row[i].size;
             if(len > state.screen_cols) len = state.screen_cols;
-            ab_append(ab, state.row.buf, len);
+            ab_append(ab, state.row[i].buf, len);
         }
         ab_append(ab, "\x1b[K", 3); // erase to the right of current line
         if(i < state.screen_rows - 1){
@@ -308,7 +320,7 @@ int main(int argc, char** argv){
 
     while (1){
         refresh_screen();
-        keypress_handler();
+        editor_keypress_handler();
     }
 
     return 0;
