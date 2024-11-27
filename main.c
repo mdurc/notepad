@@ -1,8 +1,8 @@
 
 /*** includes ***/
-#include <ctype.h>
-#include <stdarg.h>
-#include <string.h>
+#include <ctype.h> /* iscntrl for inputs */
+#include <stdarg.h> /* va_list, va_start, ... */
+#include <string.h> /* memcpy, strlen, strcpy, strerror, strstr */
 #include <unistd.h> /* read, write, file descriptors */
 #include <termios.h> /* terminal customizing */
 #include <stdio.h> /* printf, perror */
@@ -10,6 +10,7 @@
 #include <sys/ioctl.h> /* ioctl, TIOCGWINSZ */
 #include <fcntl.h> /* for saving to disk */
 #include <time.h> /* for saving to disk */
+#include <errno.h> /* errno, EAGAIN */
 
 /*** defines ***/
 // for 'q', ascii value is 113, and ctrl-q is 17
@@ -18,7 +19,15 @@
 // Macro for CTRL values:
 #define CTRL_KEY(k) ((k) & 0x1F)
 #define TAB_STOP 8
-#define QUIT_TIMES 0
+#define QUIT_TIMES 3
+#define HL_MATCH 34
+
+enum editor_key{
+    ARROW_LEFT = 1000,
+    ARROW_RIGHT,
+    ARROW_UP,
+    ARROW_DOWN
+};
 
 
 /*** function prototypes ***/
@@ -26,7 +35,7 @@ struct abuf;
 void editor_refresh_screen();
 void editor_keypress_handler();
 void editor_set_status_msg(const char* fmt, ...);
-char* editor_prompt(char* prompt);
+char* editor_prompt(char* prompt, void (*callback)(char*, int));
 
 /*** data ***/
 
@@ -142,24 +151,50 @@ void enable_raw(){
     attr.c_iflag &= ~(BRKINT | INPCK | ISTRIP);
     attr.c_cflag |= (CS8); // sets the character size to 8 bits per byte (default)
 
-    // ---- TODO: I think i need to use this for timing, and motions
+    // ---- Useful for parsing escape sequences-----
+
     // by default, VTIME is 0 and VMIN is 1, so it blocks processes until an input is registered
     // If we want to simulate some animation, we can use the following, to create a ticking effect
     // Note that anywhere that uses read() will now continously release '\0' and this will require the use of a while != 1, read
 
     // Set control characters (array of bytes)
     // nbytes specied by read() is the amount of data we hope to get, VMIN is the amount we will settle for.
-    //attr.c_cc[VMIN] = 0;
+    attr.c_cc[VMIN] = 0;
 
     // specifies the time to read "instantaneous" series of inputs before processing it as
     // a combined input data. Processed in tenths of a second. so this is set to 1/10 of a second, or 100 milliseconds.
-    //attr.c_cc[VTIME] = 1; // this requires us to rewrite main to process indefinitely
+    attr.c_cc[VTIME] = 1; // this requires us to rewrite main to process indefinitely
     // ----
 
 
     // set these changes by flushing stdin and then setting the changes
     // if there is leftover input, it will be flushed and wont be fed into the terminal as a bunch of commands
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &attr) == -1) error("tcsetattr");
+}
+
+int editor_read_key() {
+    int nread;
+    char c;
+    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+        if (nread == -1 && errno != EAGAIN) error("read");
+    }
+    // check for escape characters
+    if (c == '\x1b') {
+        char seq[3];
+        if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+        if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+        if (seq[0] == '[') {
+            switch (seq[1]) {
+                case 'A': return ARROW_UP;
+                case 'B': return ARROW_DOWN;
+                case 'C': return ARROW_RIGHT;
+                case 'D': return ARROW_LEFT;
+            }
+        }
+        return '\x1b';
+    } else {
+        return c;
+    }
 }
 
 void init_editor(){
@@ -425,7 +460,7 @@ void editor_open(char* filename){
 
 void editor_save(){
     if(state.filename == NULL){
-        state.filename = editor_prompt("Save as: %s");
+        state.filename = editor_prompt("Save as: %s", NULL);
         if(state.filename == NULL){
             editor_set_status_msg("Save cancelled");
             return;
@@ -449,20 +484,52 @@ void editor_save(){
         close(fd);
     }
     free(buf);
-    editor_set_status_msg("Failed to save.");
+    editor_set_status_msg("Failed to save. Error: %s", strerror(errno));
 }
 
 /*** find ***/
-void editor_find(){
-    char* query = editor_prompt("Search: %s (ESC to cancel)");
-    if(query == NULL) return;
+void editor_find_callback(char* query, int key){
+    static int last_match = -1;
+    static int direction = 1;
+
+    if(key == '\r' || key == '\x1b'){
+        // reset the static default values
+        last_match = -1;
+        direction = 1;
+        return;
+    }else if(key == ARROW_DOWN){
+        // down
+        direction = 1;
+    }else if(key == ARROW_UP){
+        // up
+        direction = -1;
+    }else{
+        last_match = -1;
+        direction = 1;
+    }
+
+    // start from top if there are no previous matches
+    if(last_match == -1) direction = 1;
+
+    // index of the current row we are searching
+    int current = last_match;
 
     int i;
     for(i = 0; i< state.num_rows; ++i){
-        erow* row = &state.row[i];
+        current += direction;
+
+        // make current wrap around the file
+        if (current < 0) {
+            current = state.num_rows - 1;
+        } else if (current >= state.num_rows) {
+            current = 0;
+        }
+
+        erow* row = &state.row[current];
         char* match = strstr(row->render, query);
         if(match){
-            state.cy = i;
+            last_match = current;
+            state.cy = current;
             state.cx = editor_row_rx_to_cx(row, match - row->render);
 
             // make it so that we are at the very bottom of the file, so editor_scroll will scroll us upwards to the word
@@ -470,14 +537,31 @@ void editor_find(){
             break;
         }
     }
-    free(query);
+}
+
+void editor_find(){
+    int saved_cx = state.cx;
+    int saved_cy = state.cy;
+    int saved_coloff = state.coloff;
+    int saved_rowoff = state.rowoff;
+    char* query = editor_prompt("Search: %s (ESC to cancel)", editor_find_callback);
+
+    if(query){
+        free(query);
+    } else {
+        state.cx = saved_cx;
+        state.cy = saved_cy;
+        state.coloff = saved_coloff;
+        state.rowoff = saved_rowoff;
+    }
 }
 
 
 /*** input ***/
 
 // for save as filename
-char* editor_prompt(char* prompt){
+// callback function pointer is passed
+char* editor_prompt(char* prompt, void (*callback)(char*, int)){
     size_t bufsize = 128;
     char* buf = malloc(bufsize); // 1 byte per char
     size_t buflen = 0;
@@ -487,8 +571,8 @@ char* editor_prompt(char* prompt){
     while (1) {
         editor_set_status_msg(prompt, buf);
         editor_refresh_screen();
-        int c;
-        if(read(STDIN_FILENO, &c, 1) == -1) error("read");
+
+        int c = editor_read_key();
 
         if(c == 127){
             //backspace
@@ -496,6 +580,7 @@ char* editor_prompt(char* prompt){
         }else if(c == '\x1b'){
             // exit the prompt by pressing <esc>
           editor_set_status_msg("");
+          if(callback) callback(buf, c);
           free(buf);
           return NULL;
         }else if (c == '\r') {
@@ -503,9 +588,10 @@ char* editor_prompt(char* prompt){
             // only exit when a response has been typed
             if (buflen != 0) {
                 editor_set_status_msg("");
+                if(callback) callback(buf, c);
                 return buf;
             }
-        } else if (!iscntrl(c) && c < 128) {
+        } else if (!iscntrl(c) && (int)c < 128) {
             // check that c is a valid character and non-control
 
             if (buflen == bufsize - 1) { // out of bounds
@@ -516,15 +602,16 @@ char* editor_prompt(char* prompt){
             buf[buflen++] = c;
             buf[buflen] = '\0'; // continously end with \0
         }
+        if(callback) callback(buf, c);
     }
 }
 
-void move_cursor(char c){
+void move_cursor(int c){
 
     erow* row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
     if(!row) error("moving on non-row"); // I have it setup so that row should never be NULL
     switch (c) {
-        case '-': // h
+        case ARROW_LEFT: // h
             if(state.cx != 0){
                 --state.cx;
             }else if(state.cy > 0){
@@ -532,19 +619,19 @@ void move_cursor(char c){
                 state.cx = state.row[state.cy].size;
             }
             break;
-        case ']': // j
+        case ARROW_DOWN: // j
             // num rows is the amount of rows in the current file being viewed
             // so if there is no file, we cannot move down
             if(state.cy < (state.num_rows-1)){
                 ++state.cy;
             }
             break;
-        case '=': // k
+        case ARROW_UP: // k
             if(state.cy != 0){
                 --state.cy;
             }
             break;
-        case '\\': // l
+        case ARROW_RIGHT: // l
             if(state.cx < row->size){
                 ++state.cx;
             }else if(state.cy < (state.num_rows-1)){
@@ -568,8 +655,7 @@ void move_cursor(char c){
 void editor_keypress_handler(){
     static int quit_times = QUIT_TIMES;
 
-    char c;
-    if(read(STDIN_FILENO, &c, 1) == -1) error("read");
+    int c = editor_read_key();
 
     switch(c){
         case CTRL_KEY('c'):
@@ -618,10 +704,10 @@ void editor_keypress_handler(){
         case '\r': // enter
             editor_insert_newline();
             break;
-        case '-':
-        case '=':
-        case ']':
-        case '\\':
+        case ARROW_UP:
+        case ARROW_DOWN:
+        case ARROW_LEFT:
+        case ARROW_RIGHT:
             move_cursor(c);
             break;
         default:
@@ -692,7 +778,7 @@ void editor_draw_rows(struct abuf* ab){
     int i;
     for(i=0;i<state.screen_rows; ++i){
         int filerow = i + state.rowoff;
-        if(i >= state.num_rows){
+        if(filerow >= state.num_rows){
             // check if we are outside the range of the currently edited number of rows
             ab_append(ab, "~", 1);
         }else{
