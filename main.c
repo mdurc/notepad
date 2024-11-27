@@ -26,6 +26,7 @@ struct abuf;
 void editor_refresh_screen();
 void editor_keypress_handler();
 void editor_set_status_msg(const char* fmt, ...);
+char* editor_prompt(char* prompt);
 
 /*** data ***/
 
@@ -307,10 +308,10 @@ void editor_row_delete_char(erow* row, int column){
 /*** editor operations ***/
 // doesnt have to worry about how erow is modified
 void editor_insert_char(char c){
-    // If we allow the ability to go on the first tilde below the file
-    //if(state.cy == state.num_rows){
-    //    editor_insert_row(state.num_rows, "", 0);
-    //}
+    // check if the file is empty
+    if(state.cy == state.num_rows){
+        editor_insert_row(state.num_rows, "", 0);
+    }
 
     editor_row_insert_char(&state.row[state.cy], state.cx, c);
     ++state.cx;
@@ -411,7 +412,13 @@ void editor_open(char* filename){
 }
 
 void editor_save(){
-    if(state.filename == NULL) return; // TODO
+    if(state.filename == NULL){
+        state.filename = editor_prompt("Save as: %s");
+        if(state.filename == NULL){
+            editor_set_status_msg("Save cancelled");
+            return;
+        }
+    }
 
     int len;
     char *buf = editor_rows_to_string(&len);
@@ -434,6 +441,49 @@ void editor_save(){
 }
 
 /*** input ***/
+
+// for save as filename
+char* editor_prompt(char* prompt){
+    size_t bufsize = 128;
+    char* buf = malloc(bufsize); // 1 byte per char
+    size_t buflen = 0;
+    buf[0] = '\0'; // empty str
+
+    // infinite loop that only changes the status bar
+    while (1) {
+        editor_set_status_msg(prompt, buf);
+        editor_refresh_screen();
+        int c;
+        if(read(STDIN_FILENO, &c, 1) == -1) error("read");
+
+        if(c == 127){
+            //backspace
+            if(buflen != 0) buf[--buflen] = '\0';
+        }else if(c == '\x1b'){
+            // exit the prompt by pressing <esc>
+          editor_set_status_msg("");
+          free(buf);
+          return NULL;
+        }else if (c == '\r') {
+            // <enter> has been pressed
+            // only exit when a response has been typed
+            if (buflen != 0) {
+                editor_set_status_msg("");
+                return buf;
+            }
+        } else if (!iscntrl(c) && c < 128) {
+            // check that c is a valid character and non-control
+
+            if (buflen == bufsize - 1) { // out of bounds
+                // make more space
+                bufsize *= 2; // common practice in vectors
+                buf = realloc(buf, bufsize);
+            }
+            buf[buflen++] = c;
+            buf[buflen] = '\0'; // continously end with \0
+        }
+    }
+}
 
 void move_cursor(char c){
 
