@@ -191,6 +191,19 @@ int editor_row_cx_to_rx(erow* row, int cx){
     return rx;
 }
 
+int editor_row_rx_to_cx(erow* row, int rx){
+    int curr_rx = 0;
+    int cx;
+    for(cx = 0; cx < row->size; ++cx){
+        if(row->chars[cx] == '\t'){
+            curr_rx += (TAB_STOP - 1) - (curr_rx % TAB_STOP);
+        }
+        ++curr_rx;
+        if(curr_rx > rx) return cx;
+    }
+    return cx; // just in case the parameters were out of bounds
+}
+
 void editor_update_row(erow* row){
     int tabs = 0;
     int i, j;
@@ -439,6 +452,28 @@ void editor_save(){
     editor_set_status_msg("Failed to save.");
 }
 
+/*** find ***/
+void editor_find(){
+    char* query = editor_prompt("Search: %s (ESC to cancel)");
+    if(query == NULL) return;
+
+    int i;
+    for(i = 0; i< state.num_rows; ++i){
+        erow* row = &state.row[i];
+        char* match = strstr(row->render, query);
+        if(match){
+            state.cy = i;
+            state.cx = editor_row_rx_to_cx(row, match - row->render);
+
+            // make it so that we are at the very bottom of the file, so editor_scroll will scroll us upwards to the word
+            state.rowoff = state.num_rows;
+            break;
+        }
+    }
+    free(query);
+}
+
+
 /*** input ***/
 
 // for save as filename
@@ -546,6 +581,20 @@ void editor_keypress_handler(){
             }
             exit(0);
             break;
+        case CTRL_KEY('d'):
+            if(state.cy < state.num_rows - 10){
+                state.cy += 10;
+            }else{
+                state.cy = state.num_rows - 1;
+            }
+            break;
+        case CTRL_KEY('u'):
+            if(state.cy >= 10){
+                state.cy -= 10;
+            }else{
+                state.cy = 0;
+            }
+            break;
         case CTRL_KEY('s'):
             editor_save();
             break;
@@ -559,6 +608,10 @@ void editor_keypress_handler(){
             break;
         case 'G':
             state.cy = state.num_rows - 1;
+            break;
+        case '/':
+            editor_find();
+            break;
         case 127: // backspace
             editor_delete_char();
             break;
