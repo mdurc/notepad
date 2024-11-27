@@ -6,6 +6,7 @@
 #include <stdio.h> /* printf, perror */
 #include <stdlib.h> /* exit, atexit */
 #include <sys/ioctl.h> /* ioctl, TIOCGWINSZ */
+#include <fcntl.h> /* for saving to disk */
 
 /*** defines ***/
 // for 'q', ascii value is 113, and ctrl-q is 17
@@ -40,6 +41,7 @@ struct state {
     int screen_cols;
     int num_rows;
     erow* row;
+    char* filename;
     struct termios term_defaults;
 } state;
 
@@ -159,8 +161,9 @@ void init_editor(){
     state.coloff = 0;
     state.num_rows = 0;
     state.row = NULL;
+    state.filename = NULL;
     if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
-    //printf("\r\n%d by %d\r\n", state.screen_rows, state.screen_cols);
+    --state.screen_rows; // room for status bar
 }
 
 /*** row operations ***/
@@ -216,9 +219,67 @@ void editor_append_row(char* line, size_t len){
     ++state.num_rows;
 }
 
+// doesn't have to worry about where the cursor is
+void editor_row_insert_char(erow* row, int column, char c){
+    if(column < 0 || column > row->size) column = row->size;
+    // add room for new character and null-byte
+    row->chars = realloc(row->chars, row->size + 2);
+
+    ++row->size;
+    int i;
+    // ripple through and carry all chars to the end
+    for(i=column; i<row->size; ++i){
+        char temp = row->chars[i];
+        row->chars[i] = c;
+        c = temp;
+    }
+    row->chars[i] = '\0';
+    editor_update_row(row);
+}
+
+/*** editor operations ***/
+// doesnt have to worry about how erow is modified
+void editor_insert_char(char c){
+    // If we allow the ability to go on the first tilde below the file
+    //if(state.cy == state.num_rows){
+    //    editor_append_row("", 0);
+    //}
+
+    editor_row_insert_char(&state.row[state.cy], state.cx, c);
+    ++state.cx;
+}
+
 
 /*** file i/o ***/
+// expects the caller to clear the memory of returned char*
+char* editor_rows_to_string(int* buflen){
+    int total_len = 0;
+    int i;
+    // +1 for newline characters to be added and the final null byte
+    for(i=0; i<state.num_rows; ++i){
+        total_len += state.row[i].size + 1;
+    }
+    *buflen = total_len;
+
+    char* buf = malloc(total_len);
+
+    // use another pointer as a walker through the buf memory
+    char* p = buf;
+    for(i = 0; i<state.num_rows; ++i){
+        memcpy(p, state.row[i].chars, state.row[i].size);
+        p += state.row[i].size;
+        *p = '\n';
+        p++;
+    }
+    return buf;
+}
+
 void editor_open(char* filename){
+    free(state.filename);
+    int len = strlen(filename);
+    state.filename = (char*) malloc(len + 1);
+    strcpy(state.filename, filename); // includes null-byte
+
     FILE* fp = fopen(filename, "r");
     if (!fp) error("fopen");
 
@@ -243,6 +304,27 @@ void editor_open(char* filename){
     fclose(fp);
 }
 
+void editor_save(){
+    // TODO status message update to indicate save
+    if(state.filename == NULL) return; // TODO
+
+    int len;
+    char *buf = editor_rows_to_string(&len);
+    // 0644 are standard permissions for text files
+    int fd = open(state.filename, O_RDWR | O_CREAT, 0644);
+    if (fd != -1) {
+        if (ftruncate(fd, len) != -1) {
+            if (write(fd, buf, len) == len) {
+                close(fd);
+                free(buf);
+                return;
+            }
+        }
+        close(fd);
+    }
+    free(buf);
+}
+
 /*** input ***/
 
 void move_cursor(char c){
@@ -250,7 +332,7 @@ void move_cursor(char c){
     erow* row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
     if(!row) error("moving on non-row"); // I have it setup so that row should never be NULL
     switch (c) {
-        case 'h':
+        case '-': // h
             if(state.cx != 0){
                 --state.cx;
             }else if(state.cy > 0){
@@ -258,19 +340,19 @@ void move_cursor(char c){
                 state.cx = state.row[state.cy].size;
             }
             break;
-        case 'j':
+        case ']': // j
             // num rows is the amount of rows in the current file being viewed
             // so if there is no file, we cannot move down
             if(state.cy < (state.num_rows-1)){
                 ++state.cy;
             }
             break;
-        case 'k':
+        case '=': // k
             if(state.cy != 0){
                 --state.cy;
             }
             break;
-        case 'l':
+        case '\\': // l
             if(state.cx < row->size){
                 ++state.cx;
             }else if(state.cy < (state.num_rows-1)){
@@ -300,6 +382,9 @@ void editor_keypress_handler(){
             //clear_screen();
             exit(0);
             break;
+        case CTRL_KEY('s'):
+            editor_save();
+            break;
         case '0':
             state.cx = 0;
             break;
@@ -308,14 +393,20 @@ void editor_keypress_handler(){
                 state.cx = state.row[state.cy].size;
             }
             break;
-        case 'h':
-        case 'j':
-        case 'k':
-        case 'l':
+        case 'G':
+            state.cy = state.num_rows - 1;
+        case 127: // backspace
+
+            break;
+        case '-':
+        case '=':
+        case ']':
+        case '\\':
             move_cursor(c);
             // TODO: delete key
             break;
         default:
+            editor_insert_char(c);
             break;
     }
 }
@@ -389,10 +480,27 @@ void editor_draw_rows(struct abuf* ab){
             ab_append(ab, state.row[filerow].render + state.coloff, len);
         }
         ab_append(ab, "\x1b[K", 3); // erase to the right of current line
-        if(i < state.screen_rows - 1){
-            ab_append(ab, "\r\n", 2); // dont do newline at bottom
-        }
+        ab_append(ab, "\r\n", 2); // dont do newline at bottom
     }
+}
+
+void editor_draw_status_bar(struct abuf* ab){
+    ab_append(ab, "\x1b[7m", 4); // invert colors escape sequence
+    char status[80], rstatus[80];
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines",
+            state.filename ? state.filename : "[No Name]", state.num_rows);
+    int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d",
+            state.cy + 1, state.num_rows);
+    if (len > state.screen_cols) len = state.screen_cols;
+    ab_append(ab, status, len);
+    for(;len<state.screen_cols; ++len){
+        if(state.screen_cols - len == rlen){
+            ab_append(ab, rstatus, rlen);
+            break;
+        }
+        ab_append(ab, " ", 1); // color the bar
+    }
+    ab_append(ab, "\x1b[m", 3); // undo color invert
 }
 
 void editor_refresh_screen(){
@@ -405,6 +513,7 @@ void editor_refresh_screen(){
     //clear_screen(&ab);
 
     editor_draw_rows(&ab);
+    editor_draw_status_bar(&ab);
 
     // the terminal uses 1-indexing, so (1,1) is the top left corner
     char buf[32];
