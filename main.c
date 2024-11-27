@@ -338,8 +338,7 @@ void editor_insert_newline(){
 }
 
 void editor_delete_char(){
-    // should be made to not require this check
-    //if (state.cy == state.num_rows) return;
+    if (state.cy == state.num_rows) return; // on a new empty file
     erow* curr = &state.row[state.cy];
     if(state.cx > 0){
         // technically the cursor deletes the character BEHIND the currently highlighted one
@@ -571,7 +570,6 @@ void editor_keypress_handler(){
         case ']':
         case '\\':
             move_cursor(c);
-            // TODO: delete key
             break;
         default:
             if(!iscntrl(c)){
