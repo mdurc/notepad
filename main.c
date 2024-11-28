@@ -19,10 +19,18 @@
 #define CTRL_KEY(k) ((k) & 0x1F) // macro for reading ctrl keypresses
 #define TAB_STOP 4
 #define QUIT_TIMES 3
-#define HL_MATCH 34
 
 
 /* ------------------------------------ data ------------------------------------ */
+// secondary keywords are marked by ending with a '|'
+// ends in NULL so that we can loop through items without knowing the size of array
+char* C_HL_keywords[] = {
+  "switch", "if", "while", "for", "break", "continue", "return", "else",
+  "struct", "union", "typedef", "static", "enum", "class", "case",
+  "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+  "void|", NULL
+};
+
 // defining special keys that are used
 enum editor_key{
     BACKSPACE = 127,
@@ -35,7 +43,13 @@ enum editor_key{
 // Will be held in hl within erow
 enum editor_highlight{
     HL_NORMAL = 0,
-    HL_NUMBER
+    HL_MLCOMMENT,
+    HL_COMMENT,
+    HL_KEYWORD1,
+    HL_KEYWORD2,
+    HL_STRING,
+    HL_NUMBER,
+    HL_MATCH
 };
 
 // append buffer: what is written on every refresh
@@ -46,6 +60,8 @@ struct abuf {
 
 // editor row
 typedef struct erow {
+    int idx; // for multi-line comments, knowing what index the row is
+    int hl_open_comment; // flag for being in ml_comment
     int size;
     int rsize;
     char* chars;
@@ -109,6 +125,8 @@ void editor_set_status_msg(const char* fmt, ...);
 void editor_refresh_screen();
 
 void editor_update_syntax(erow* row);
+int editor_syntax_to_color(uint8_t hl);
+int is_separator(int c);
 
 /* ----------------------------------------- utility -------------------------------------------*/
 // error message utility function for exiting with error code and printing error
@@ -285,7 +303,10 @@ void editor_insert_row(int row_num, char* line, size_t len){
     // note that state.row now has +1 allocated, so i is not out of bounds
     for(i=state.num_rows; i > row_num; --i){
         state.row[i] = state.row[i-1];
+        ++state.row[i].idx; // adjust index
     }
+
+    state.row[row_num].idx = row_num;
 
     state.row[row_num].size = len;
     state.row[row_num].chars = malloc(len + 1); // room for null char
@@ -295,6 +316,7 @@ void editor_insert_row(int row_num, char* line, size_t len){
     state.row[row_num].rsize = 0;
     state.row[row_num].render = NULL;
     state.row[row_num].hl = NULL;
+    state.row[row_num].hl_open_comment = 0;
     editor_update_row(&state.row[row_num]); // update the render characters in state
 
     ++state.num_rows;
@@ -319,6 +341,7 @@ void editor_delete_row(int row_num){
         // all attributes should be copied,
         // ptrs will be copied and it should be fine
         state.row[i] = state.row[i+1];
+        --state.row[i].idx; // update index of the remaining rows
     }
     // clear the ending row
     state.row[i].size = 0;
@@ -574,12 +597,12 @@ char* editor_prompt(char* prompt, void (*callback)(char*, int)){
         if(c == BACKSPACE){
             //backspace
             if(buflen != 0) buf[--buflen] = '\0';
-        }else if(c == '\x1b'){
+        }else if(c == '\x1b' || c == CTRL_KEY('c')){
             // exit the prompt by pressing <esc>
-          editor_set_status_msg("");
-          if(callback) callback(buf, c);
-          free(buf);
-          return NULL;
+            editor_set_status_msg("");
+            if(callback) callback(buf, c);
+            free(buf);
+            return NULL;
         }else if (c == '\r') {
             // <enter> has been pressed
             // only exit when a response has been typed
@@ -690,7 +713,7 @@ void editor_keypress_handler(){
         case 'G':
             state.cy = state.num_rows - 1;
             break;
-        case '/':
+        case CTRL_KEY('f'):
             editor_find();
             break;
         case BACKSPACE: // backspace
@@ -726,7 +749,16 @@ void editor_find_callback(char* query, int key){
     static int last_match = -1;
     static int direction = 1;
 
-    if(key == '\r' || key == '\x1b'){
+    static int saved_hl_line;
+    static char* saved_hl = NULL;
+
+    if(saved_hl){
+        memcpy(state.row[saved_hl_line].hl, saved_hl, state.row[saved_hl_line].rsize);
+        free(saved_hl);
+        saved_hl = NULL;
+    }
+
+    if(key == '\r' || key == '\x1b' || key == CTRL_KEY('c')){
         // reset the static default values
         last_match = -1;
         direction = 1;
@@ -767,7 +799,12 @@ void editor_find_callback(char* query, int key){
             state.cx = editor_row_rx_to_cx(row, match - row->render);
 
             // make it so that we are at the very bottom of the file, so editor_scroll will scroll us upwards to the word
-            state.rowoff = state.num_rows;
+            //state.rowoff = state.num_rows;
+
+            saved_hl_line = current;
+            saved_hl = malloc(row->rsize);
+            memcpy(saved_hl, row->hl, row->rsize);
+            memset(&state.row[current].hl[match-row->render], HL_MATCH, strlen(query));
             break;
         }
     }
@@ -793,25 +830,122 @@ void editor_find(){
 
 /* ------------------------------------- syntax highlighting ----------------------------------- */
 // moves through erow's render array and hl array, assigning highlight descriptions for each char within render, in hl
+// in charge of filling hl array
 void editor_update_syntax(erow* row){
     // hl points to type uint8_t which is an unsigned char, which is 1 byte
     row->hl = realloc(row->hl, row->rsize /* * sizeof(unsigned char) */);
     memset(row->hl, HL_NORMAL, row->rsize);
 
+    int prev_sep = 1; // start of row should act as a valid separator
+    int in_string = 0; // flag for inside double or single quotes.
+                       // it will equal the double or single quote so we can highlight: "jack's"
+    int in_comment = (row->idx > 0 && state.row[row->idx - 1].hl_open_comment);
     int i;
     for(i=0;i<row->rsize;++i){
-        if(isdigit(row->render[i])){
-            row->hl[i] = HL_NUMBER;
+        char c = row->render[i];
+        uint8_t prev_hl = (i > 0) ? row->hl[i-1]:HL_NORMAL;
+
+        if(!in_string && !in_comment && !strncmp(&row->render[i], "//", 2)){
+            memset(&row->hl[i], HL_COMMENT, row->rsize - i);
+            break; // don't try to color anything else, if it is in a comment line
         }
+
+        if (in_comment) {
+            row->hl[i] = HL_MLCOMMENT;
+            if (!strncmp(&row->render[i], "*/", 2)) {
+                memset(&row->hl[i], HL_MLCOMMENT, 2);
+                ++i;
+                in_comment = 0;
+                prev_sep = 1;
+                continue;
+            } else {
+                continue;
+            }
+        } else if (!strncmp(&row->render[i], "/*", 2)) {
+            memset(&row->hl[i], HL_MLCOMMENT, 2);
+            ++i;
+            in_comment = 1;
+            continue;
+        }
+
+        if(in_string){
+            row->hl[i] = HL_STRING;
+            if(c == '\\' && i+1 < row->rsize){
+                // If there is a backslash, move to the next character
+                // then color the next character as well.
+
+                // Accounts for "hi\"there"
+                row->hl[i+1] = HL_STRING;
+                ++i;
+                continue;
+            }
+            if(c == in_string) in_string = 0;
+            prev_sep = 1; // ended string highlighting
+            continue;
+        }else{
+            if(c == '"' || c == '\''){
+                in_string = c;
+                row->hl[i] = HL_STRING;
+                continue;
+            }
+        }
+
+        if(isdigit(c) && ((prev_sep || prev_hl == HL_NUMBER) ||
+                          (c == '.' && prev_hl == HL_NUMBER))){
+            row->hl[i] = HL_NUMBER;
+            prev_sep = 0; // we are currently highlighting the number
+            continue;
+        }
+
+        if(prev_sep){
+            int j;
+            for(j=0; C_HL_keywords[j]; ++j){
+                int keyword_len = strlen(C_HL_keywords[j]);
+                int is_kw2 = C_HL_keywords[j][keyword_len - 1] == '|';
+                if (is_kw2) --keyword_len;
+
+                if (!strncmp(&row->render[i], C_HL_keywords[j], keyword_len) &&
+                        is_separator(row->render[i + keyword_len])) {
+                    memset(&row->hl[i], is_kw2 ? HL_KEYWORD2 : HL_KEYWORD1, keyword_len);
+                    i += (keyword_len-1); // outer loop increments
+                    break;
+                }
+            }
+            if (C_HL_keywords[j] != NULL) {
+                // means that we had to break out of previous loop
+                prev_sep = 0; // just ended on a keyword
+                continue;
+            }
+        }
+
+        prev_sep = is_separator(c);
+    }
+
+    // check if we closed the multi-line comment or not
+    int changed = (row->hl_open_comment != in_comment);
+    row->hl_open_comment = in_comment;
+    if(changed && row->idx + 1 < state.num_rows){
+        editor_update_syntax(&state.row[row->idx + 1]);
     }
 }
 
 // returns the ansi code for integers from editor_highlight
 int editor_syntax_to_color(uint8_t hl){
     switch(hl){
+        case HL_MLCOMMENT:
+        case HL_COMMENT: return 36; // cyan
+        case HL_KEYWORD1: return 33; // yellow
+        case HL_KEYWORD2: return 32; // green
+        case HL_STRING: return 35; // magenta
         case HL_NUMBER: return 31; // forground red
+        case HL_MATCH: return 34; // bright blue
         default: return 37; // foreground white
     }
+}
+
+// for identifying when a number is isolated vs within a string
+int is_separator(int c){
+    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
 }
 
 
@@ -883,16 +1017,36 @@ void editor_draw_rows(struct abuf* ab){
             char* p = state.row[filerow].render + state.coloff; // render array ptr
             uint8_t* highlights = state.row[filerow].hl + state.coloff; // hl array ptr
 
+            // only change color when it is different from the previous character
+            int curr_color = -1;
+
             int i;
             for(i=0;i<len;++i){
-                if(highlights[i] == HL_NORMAL){   // making the common case fast
-                    ab_append(ab, "\x1b[39m", 5); // default color
+                if(iscntrl(p[i])){ // for non-printable characters, make them print nicely
+                    char symbol = (p[i] <= 26) ? '@' + p[i] : '?';
+                    ab_append(ab, "\x1b[7m", 4); // invert colors
+                    ab_append(ab, &symbol, 1);
+                    ab_append(ab, "\x1b[m", 3); // revert colors
+                    if (curr_color != -1) {
+                        char buf[16];
+                        int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", curr_color);
+                        ab_append(ab, buf, clen); // add current color back
+                    }
+                }else if(highlights[i] == HL_NORMAL){   // making the common case fast
+                    if(curr_color != -1){
+                        curr_color = -1;
+                        ab_append(ab, "\x1b[39m", 5); // default color
+                    }
                     ab_append(ab, p + i, 1);
                 }else{
                     int h_color = editor_syntax_to_color(highlights[i]);
-                    char sequence_buf[16];
-                    int sequence_length = snprintf(sequence_buf, sizeof(sequence_buf), "\x1b[%dm", h_color);
-                    ab_append(ab, sequence_buf, sequence_length);
+                    if(curr_color != h_color){
+                        curr_color = h_color;
+
+                        char sequence_buf[16];
+                        int sequence_length = snprintf(sequence_buf, sizeof(sequence_buf), "\x1b[%dm", h_color);
+                        ab_append(ab, sequence_buf, sequence_length); // update color
+                    }
                     ab_append(ab, p + i, 1);
                 }
             }
