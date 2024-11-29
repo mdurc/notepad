@@ -5,6 +5,17 @@
 void read_normal_mode(int c){
     char second_char;
     int bytes_read;
+
+    // check if it is a relative jump
+    if(isdigit(c)){
+        if(read(STDIN_FILENO, &second_char, 1) != 1) error("read");
+        c = c - '0';
+        while(c--){
+            move_cursor(second_char);
+        }
+        return;
+    }
+
     switch(c){
         case ':':
             read_command_mode();
