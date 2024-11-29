@@ -25,6 +25,14 @@
 
 /* ------------------------------------ data ------------------------------------ */
 
+// Modal editing
+enum editor_modes{
+    NORMAL_MODE = 0,
+    INSERT_MODE,
+    VISUAL_MODE,
+    COMMAND_MODE
+};
+
 // defining special keys that are used
 enum editor_key{
     BACKSPACE = 127,
@@ -66,6 +74,7 @@ typedef struct erow {
 } erow;
 
 struct state {
+    int mode;   // for modal editing
     int cx, cy; // cursor positions (now relative to the file currently being read)
     int rx;     // index for render field, used for adjusting for tabs
     int rowoff; // row offset for vertical scrolling
@@ -101,7 +110,8 @@ void editor_row_delete_char(erow* row, int column);
 void editor_insert_char(char c);
 void editor_insert_newline();
 void editor_delete_char();
-int editor_read_key();
+void editor_delete_word();
+//int editor_read_key();
 void init_editor();
 char* editor_rows_to_string(int* buflen);
 void editor_open(char* filename);
@@ -123,6 +133,21 @@ void editor_refresh_screen();
 void editor_update_syntax(erow* row);
 int editor_syntax_to_color(uint8_t hl);
 int is_separator(int c);
+
+// VIM:
+void read_normal_mode(int c);
+void read_insert_mode(int c);
+void read_visual_mode(int c);
+void read_command_mode();
+
+void move_previous_word();
+void move_next_word();
+void move_end_next_word();
+
+void backwards_F(int c);
+void forwards_F(int c);
+void backwards_T(int c);
+void forwards_T(int c);
 
 
 #endif

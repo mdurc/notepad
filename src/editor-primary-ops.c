@@ -5,6 +5,7 @@
 
 // initialize editor state
 void init_editor(){
+    state.mode = NORMAL_MODE;
     state.cx = 0;
     state.cy = 0;
     state.rx = 0;
@@ -52,6 +53,7 @@ void editor_insert_newline(){
     }
     ++state.cy; // move to lower row, note that the size and content has been handled from editor_insert_row(..)
     state.cx = 0; // goto start of the new line
+    state.dirty = 1;
 }
 
 // Adjusts cursor positions, delegates to row deletion functions
@@ -73,3 +75,17 @@ void editor_delete_char(){
     state.dirty = 1;
 }
 
+
+void editor_delete_word() {
+    char* p = state.row[state.cy].chars;
+    int i = state.cx;
+    int size = state.row[state.cy].size;
+    while (i < size && !is_separator(p[i]) && !isspace(p[i])) ++i;
+
+    int num_characters = i-state.cx;
+    state.cx = i;
+
+    for(i=0; i<num_characters; ++i){
+        editor_delete_char();
+    }
+}

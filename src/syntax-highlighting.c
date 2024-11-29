@@ -129,5 +129,5 @@ int editor_syntax_to_color(uint8_t hl){
 
 // for identifying when a number is isolated vs within a string
 int is_separator(int c){
-    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];", c) != NULL;
+    return isspace(c) || c == '\0' || strchr(",.()+-/*=~%<>[];:\"\'", c) != NULL;
 }

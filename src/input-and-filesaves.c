@@ -15,7 +15,8 @@ char* editor_prompt(char* prompt, void (*callback)(char*, int)){
         editor_set_status_msg(prompt, buf);
         editor_refresh_screen();
 
-        int c = editor_read_key();
+        char c;
+        if(read(STDIN_FILENO, &c, 1) == -1) error("read");
 
         if(c == BACKSPACE){
             //backspace
@@ -49,143 +50,78 @@ char* editor_prompt(char* prompt, void (*callback)(char*, int)){
     }
 }
 
-// Moving cursor on non-insertion/deletion of characters. Purely movement characters.
-void move_cursor(int c){
-    erow* row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
-    if(!row) error("moving on non-row"); // I have it setup so that row should never be NULL
-    switch (c) {
-        case ARROW_LEFT: // h
-            if(state.cx != 0){
-                --state.cx;
-            }else if(state.cy > 0){
-                --state.cy;
-                state.cx = state.row[state.cy].size;
-            }
-            break;
-        case ARROW_DOWN: // j
-            // num rows is the amount of rows in the current file being viewed
-            // so if there is no file, we cannot move down
-            if(state.cy < (state.num_rows-1)){
-                ++state.cy;
-            }
-            break;
-        case ARROW_UP: // k
-            if(state.cy != 0){
-                --state.cy;
-            }
-            break;
-        case ARROW_RIGHT: // l
-            if(state.cx < row->size){
-                ++state.cx;
-            }else if(state.cy < (state.num_rows-1)){
-                ++state.cy;
-                state.cx = 0;
-            }
-            break;
-    }
-    // snap the horizontal to the end of each line
-    row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
-    if(!row) error("moving on non-row");
-
-    int rowlen = row ? row->size : 0;
-    if (state.cx > rowlen) {
-        state.cx = rowlen;
-    }
-}
 
 // Read keys, made for handling special defined keys, and multi-byte escape sequences that can be read due to changing vmin and vtime
-int editor_read_key() {
-    int nread;
-    char c;
-    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
-        if (nread == -1 && errno != EAGAIN) error("read");
-    }
-    // check for escape characters
-    if (c == '\x1b') {
-        char seq[3];
-        if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-        if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
-        if (seq[0] == '[') {
-            switch (seq[1]) {
-                case 'A': return ARROW_UP;
-                case 'B': return ARROW_DOWN;
-                case 'C': return ARROW_RIGHT;
-                case 'D': return ARROW_LEFT;
-            }
-        }
-        return '\x1b';
-    } else {
-        return c;
-    }
-}
+//int editor_read_key() {
+//    int nread;
+//    char c;
+//    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+//        if (nread == -1 && errno != EAGAIN) error("read");
+//    }
+//    // check for escape characters
+//    if (c == '\x1b') {
+//        char seq[3];
+//        if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+//        if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+//        if (seq[0] == '[') {
+//            switch (seq[1]) {
+//                case 'A': return ARROW_UP;
+//                case 'B': return ARROW_DOWN;
+//                case 'C': return ARROW_RIGHT;
+//                case 'D': return ARROW_LEFT;
+//            }
+//        }
+//        return '\x1b';
+//    } else {
+//        return c;
+//    }
+//}
 
 // read 1 byte from STDIN, store in address of int c (char). Handles all keybind specifications.
 void editor_keypress_handler(){
     static int quit_times = QUIT_TIMES;
 
-    int c = editor_read_key();
+    char c;
+    if(read(STDIN_FILENO, &c, 1) == -1) error("read");
 
-    switch(c){
-        case CTRL_KEY('c'):
-            if(state.dirty && quit_times > 0){
-                editor_set_status_msg("WARNING!!! File has unsaved changes, press CTRL-c %d more times to quit without saving.", quit_times);
-                --quit_times;
-                return;
-            }
-            exit(0);
-            break;
-        case CTRL_KEY('d'):
-            if(state.cy < state.num_rows - 10){
-                state.cy += 10;
-            }else{
-                state.cy = state.num_rows - 1;
-            }
-            break;
-        case CTRL_KEY('u'):
-            if(state.cy >= 10){
-                state.cy -= 10;
-            }else{
-                state.cy = 0;
-            }
-            break;
-        case CTRL_KEY('s'):
-            editor_save();
-            break;
-        case '0':
-            state.cx = 0;
-            break;
-        case '$':
-            if(state.cy < state.num_rows){
-                state.cx = state.row[state.cy].size;
-            }
-            break;
-        case 'G':
-            state.cy = state.num_rows - 1;
-            break;
-        case CTRL_KEY('f'):
-            editor_find();
-            break;
-        case BACKSPACE: // backspace
-            editor_delete_char();
-            break;
-        case '\r': // enter
-            editor_insert_newline();
-            break;
-        case '\t': // tab
-            editor_insert_char(c);
-            break;
-        case ARROW_UP:
-        case ARROW_DOWN:
-        case ARROW_LEFT:
-        case ARROW_RIGHT:
-            move_cursor(c);
-            break;
-        default:
-            if(!iscntrl(c)){
-                editor_insert_char(c);
-            }
-            break;
+    // if <esc>, then move to normal mode
+    if(c == '\x1b'){
+        state.mode = NORMAL_MODE;
+        quit_times = QUIT_TIMES;
+        editor_set_status_msg("-- NORMAL --");
+        return;
+    }else if(c == CTRL_KEY('c')){
+        if(state.dirty && quit_times > 0){
+            editor_set_status_msg("WARNING!!! File has unsaved changes, press CTRL-c %d more times to quit without saving.", quit_times);
+            --quit_times;
+            return;
+        }
+        exit(0);
     }
+
+    switch(state.mode){
+        case NORMAL_MODE:
+            read_normal_mode(c);
+            break;
+        case INSERT_MODE:
+            read_insert_mode(c);
+            break;
+        case VISUAL_MODE:
+            read_visual_mode(c);
+            break;
+        case COMMAND_MODE:
+            read_command_mode();
+            break;
+        default: break;
+    }
+
+    if(c != ':'){
+        editor_set_status_msg(state.mode == NORMAL_MODE    ? "-- NORMAL --"
+                : state.mode == INSERT_MODE  ? "-- INSERT --"
+                : state.mode == VISUAL_MODE  ? "-- VISUAL --"
+                : state.mode == COMMAND_MODE ? "-- COMMAND --" : "");
+    }
+
 
     // reset quit times after processing other inputs
     quit_times = QUIT_TIMES;

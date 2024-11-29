@@ -18,7 +18,7 @@ int main(int argc, char** argv){
         editor_open(argv[1]);
     }
 
-    editor_set_status_msg("movement: arrow keys");
+    editor_set_status_msg("movement: vim");
 
     while (1){
         editor_refresh_screen();

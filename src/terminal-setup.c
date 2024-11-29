@@ -89,11 +89,11 @@ void enable_raw(){
 
     // Set control characters (array of bytes)
     // nbytes specied by read() is the amount of data we hope to get, VMIN is the amount we will settle for.
-    attr.c_cc[VMIN] = 0;
+    //attr.c_cc[VMIN] = 0;
 
     // specifies the time to read "instantaneous" series of inputs before processing it as
     // a combined input data. Processed in tenths of a second. so this is set to 1/10 of a second, or 100 milliseconds.
-    attr.c_cc[VTIME] = 1; // this requires us to rewrite main to process indefinitely
+    //attr.c_cc[VTIME] = 1; // this requires us to rewrite main to process indefinitely
     // ----
 
 

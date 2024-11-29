@@ -1,5 +1,3 @@
-
-
 CC = gcc
 CFLAGS = -Wall -Wextra -Werror
 PROGRAM = notes
