@@ -103,7 +103,12 @@ void read_normal_mode(int c){
                 editor_delete_word();
             }else if(bytes_read && second_char == 'd'){
                 state.cx = 0;
-                editor_delete_row(state.cy);
+                if(state.cy >= 0 && state.cy < state.num_rows){
+                    state.cx = 0;
+                    editor_delete_row(state.cy);
+                    if(state.cy >= state.num_rows) state.cy = state.num_rows - 1;
+                    state.dirty = 1;
+                }
             }
             break;
         case 'x':
@@ -172,7 +177,10 @@ void read_insert_mode(int c){
 }
 
 void read_visual_line_mode(int c){
-
+    fprintf(stderr, "cy: %d\n", state.cy);
+    if(!state.row){
+        return;
+    }
     static uint8_t* saved_line_hl = NULL;
     int len = state.row[state.cy].size;
     if(!saved_line_hl){
@@ -194,9 +202,12 @@ void read_visual_line_mode(int c){
             free(saved_line_hl);
             saved_line_hl = NULL;
 
-            state.cx = 0;
-            editor_delete_row(state.cy);
-            state.dirty = 1;
+            if(state.cy >= 0 && state.cy < state.num_rows){
+                state.cx = 0;
+                editor_delete_row(state.cy);
+                if(state.cy >= state.num_rows) state.cy = state.num_rows - 1;
+                state.dirty = 1;
+            }
             return;
         case 'J': // move highlighted line down one space (swapping with line below)
             if(state.cy < (state.num_rows - 1)){
@@ -223,8 +234,10 @@ void read_visual_line_mode(int c){
 
 void read_command_mode(){
     char* query = editor_prompt(":%s", NULL);
-    if(query && (sizeof(query) == 1 && (*query == 'w' || *query == 'W'))){
+    if(query && (strlen(query) == 1 && (*query == 'w' || *query == 'W'))){
         editor_save();
+    }else if(query && (strlen(query) == 1 && (*query == 'q' || *query == 'Q'))){
+        exit(0);
     }else{
         state.mode = NORMAL_MODE;
         editor_set_status_msg("-- NORMAL --");
@@ -236,7 +249,6 @@ void read_command_mode(){
 // Moving cursor on non-insertion/deletion of characters. Purely movement characters.
 void move_cursor(int c){
     erow* row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
-    if(!row) error("moving on non-row"); // I have it setup so that row should never be NULL
     switch (c) {
         case 'h':
             if(state.cx != 0){
@@ -278,7 +290,6 @@ void move_cursor(int c){
     }
     // snap the horizontal to the end of each line
     row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
-    if(!row) error("moving on non-row");
 
     int rowlen = row ? row->size : 0;
     if (state.cx > rowlen) {
