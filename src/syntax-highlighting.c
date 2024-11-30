@@ -116,8 +116,8 @@ void editor_update_syntax(erow* row){
 // returns the ansi code for integers from editor_highlight
 int editor_syntax_to_color(uint8_t hl){
     switch(hl){
-        case HL_MLCOMMENT:
         case HL_VISUAL: return 7; // invert colors
+        case HL_MLCOMMENT:
         case HL_COMMENT: return 36; // cyan
         case HL_KEYWORD1: return 33; // yellow
         case HL_KEYWORD2: return 32; // green
