@@ -72,6 +72,7 @@ void editor_draw_rows(struct abuf* ab){
             // only change color when it is different from the previous character
             int curr_color = -1;
 
+            int in_visual_highlight = 0;
             int i;
             for(i=0;i<len;++i){
                 if(iscntrl(p[i])){ // for non-printable characters, make them print nicely
@@ -90,6 +91,15 @@ void editor_draw_rows(struct abuf* ab){
                         ab_append(ab, "\x1b[39m", 5); // default color
                     }
                     ab_append(ab, p + i, 1);
+                }else if(highlights[i] == HL_VISUAL){
+                    if(!in_visual_highlight){
+                        in_visual_highlight = 1;
+                        char sequence_buf[16];
+                        int sequence_length = snprintf(sequence_buf, sizeof(sequence_buf), "\x1b[%dm",
+                                                                     editor_syntax_to_color(highlights[i]));
+                        ab_append(ab, sequence_buf, sequence_length); // start highlight in row
+                    }
+                    ab_append(ab, p + i, 1);
                 }else{
                     int h_color = editor_syntax_to_color(highlights[i]);
                     if(curr_color != h_color){
@@ -101,6 +111,10 @@ void editor_draw_rows(struct abuf* ab){
                     }
                     ab_append(ab, p + i, 1);
                 }
+            }
+            if(in_visual_highlight){
+                in_visual_highlight = 0;
+                ab_append(ab, "\x1b[m", 3); // revert colors
             }
             ab_append(ab, "\x1b[39m", 5); // reset to default color
         }

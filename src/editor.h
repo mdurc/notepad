@@ -51,7 +51,8 @@ enum editor_highlight{
     HL_KEYWORD2,
     HL_STRING,
     HL_NUMBER,
-    HL_MATCH
+    HL_MATCH,
+    HL_VISUAL
 };
 
 // append buffer: what is written on every refresh
@@ -137,7 +138,7 @@ int is_separator(int c);
 // VIM:
 void read_normal_mode(int c);
 void read_insert_mode(int c);
-void read_visual_mode(int c);
+void read_visual_line_mode(int c);
 void read_command_mode();
 
 void move_previous_word();

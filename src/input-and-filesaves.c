@@ -86,6 +86,9 @@ void editor_keypress_handler(){
 
     // if <esc>, then move to normal mode
     if(c == '\x1b'){
+        if(state.mode == VISUAL_MODE){
+            read_visual_line_mode(c); // visual mode handles recoloring lines
+        }
         state.mode = NORMAL_MODE;
         quit_times = QUIT_TIMES;
         editor_set_status_msg("-- NORMAL --");
@@ -107,10 +110,7 @@ void editor_keypress_handler(){
             read_insert_mode(c);
             break;
         case VISUAL_MODE:
-            read_visual_mode(c);
-            break;
-        case COMMAND_MODE:
-            read_command_mode();
+            read_visual_line_mode(c);
             break;
         default: break;
     }
@@ -118,8 +118,7 @@ void editor_keypress_handler(){
     if(c != ':'){
         editor_set_status_msg(state.mode == NORMAL_MODE    ? "-- NORMAL --"
                 : state.mode == INSERT_MODE  ? "-- INSERT --"
-                : state.mode == VISUAL_MODE  ? "-- VISUAL --"
-                : state.mode == COMMAND_MODE ? "-- COMMAND --" : "");
+                : state.mode == VISUAL_MODE  ? "-- VISUAL --" : "");
     }
 
 

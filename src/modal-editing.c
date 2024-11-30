@@ -20,6 +20,10 @@ void read_normal_mode(int c){
         case ':':
             read_command_mode();
             break;
+        case 'V':
+            state.mode = VISUAL_MODE;
+            read_visual_line_mode(c);
+            break;
         case CTRL_KEY('d'):
             if(state.cy < state.num_rows - 10){
                 state.cy += 10;
@@ -167,14 +171,63 @@ void read_insert_mode(int c){
     }
 }
 
-void read_visual_mode(int c){
-    fprintf(stderr, "Visual keybind %c (%c)\n", c,c );
+void read_visual_line_mode(int c){
+
+    static uint8_t* saved_line_hl = NULL;
+    int len = state.row[state.cy].size;
+    if(!saved_line_hl){
+        saved_line_hl = malloc(len);
+        memcpy(saved_line_hl, state.row[state.cy].hl, len);
+    }
+
+    switch(c){
+        case '\x1b':
+            state.mode = NORMAL_MODE;
+            memcpy(state.row[state.cy].hl, saved_line_hl, len);
+            free(saved_line_hl);
+            saved_line_hl = NULL;
+
+            return;
+        case 'd':
+            state.mode = NORMAL_MODE;
+            memcpy(state.row[state.cy].hl, saved_line_hl, len);
+            free(saved_line_hl);
+            saved_line_hl = NULL;
+
+            state.cx = 0;
+            editor_delete_row(state.cy);
+            state.dirty = 1;
+            return;
+        case 'J': // move highlighted line down one space (swapping with line below)
+            if(state.cy < (state.num_rows - 1)){
+                erow temp = state.row[state.cy+1];
+                state.row[state.cy+1] = state.row[state.cy];
+                state.row[state.cy] = temp;
+                ++state.cy;
+            }
+            state.dirty = 1;
+            break;
+        case 'K': // Same as J but upwards
+            if(state.cy > 0){
+                erow temp = state.row[state.cy-1];
+                state.row[state.cy-1] = state.row[state.cy];
+                state.row[state.cy] = temp;
+                --state.cy;
+            }
+            state.dirty = 1;
+            break;
+    }
+    // highlight current line
+    memset(state.row[state.cy].hl, HL_VISUAL, len);
 }
 
 void read_command_mode(){
     char* query = editor_prompt(":%s", NULL);
-    if(strlen(query) == 1 && (*query == 'w' || *query == 'W')){
+    if(query && (sizeof(query) == 1 && (*query == 'w' || *query == 'W'))){
         editor_save();
+    }else{
+        state.mode = NORMAL_MODE;
+        editor_set_status_msg("-- NORMAL --");
     }
     if(query) free(query);
 }
