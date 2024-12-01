@@ -36,10 +36,10 @@ enum editor_modes{
 // defining special keys that are used
 enum editor_key{
     BACKSPACE = 127,
-    ARROW_LEFT = 1000,
-    ARROW_RIGHT,
-    ARROW_UP,
-    ARROW_DOWN
+    //ARROW_LEFT = 1000,
+    //ARROW_RIGHT,
+    //ARROW_UP,
+    //ARROW_DOWN
 };
 
 // Will be held in hl within erow

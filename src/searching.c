@@ -21,10 +21,10 @@ void editor_find_callback(char* query, int key){
         last_match = -1;
         direction = 1;
         return;
-    }else if(key == ARROW_DOWN){
+    }else if(key == CTRL_KEY('n')){
         // down
         direction = 1;
-    }else if(key == ARROW_UP){
+    }else if(key == CTRL_KEY('N')){
         // up
         direction = -1;
     }else{

@@ -51,32 +51,6 @@ char* editor_prompt(char* prompt, void (*callback)(char*, int)){
 }
 
 
-// Read keys, made for handling special defined keys, and multi-byte escape sequences that can be read due to changing vmin and vtime
-//int editor_read_key() {
-//    int nread;
-//    char c;
-//    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
-//        if (nread == -1 && errno != EAGAIN) error("read");
-//    }
-//    // check for escape characters
-//    if (c == '\x1b') {
-//        char seq[3];
-//        if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-//        if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
-//        if (seq[0] == '[') {
-//            switch (seq[1]) {
-//                case 'A': return ARROW_UP;
-//                case 'B': return ARROW_DOWN;
-//                case 'C': return ARROW_RIGHT;
-//                case 'D': return ARROW_LEFT;
-//            }
-//        }
-//        return '\x1b';
-//    } else {
-//        return c;
-//    }
-//}
-
 // read 1 byte from STDIN, store in address of int c (char). Handles all keybind specifications.
 void editor_keypress_handler(){
     static int quit_times = QUIT_TIMES;

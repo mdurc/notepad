@@ -387,7 +387,7 @@ void backwards_T(int c) {
 
     while (i > 0) {
         if (p[i - 1] == c) {
-            state.cx = i - 1;
+            state.cx = i;
             return;
         }
         --i;
