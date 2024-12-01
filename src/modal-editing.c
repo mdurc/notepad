@@ -107,7 +107,6 @@ void read_normal_mode(int c){
                     state.cx = 0;
                     editor_delete_row(state.cy);
                     if(state.cy >= state.num_rows) state.cy = state.num_rows - 1;
-                    state.dirty = 1;
                 }
             }else if(bytes_read && second_char == 'g'){
                 bytes_read = read(STDIN_FILENO, &second_char, 1);
