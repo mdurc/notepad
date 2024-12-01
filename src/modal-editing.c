@@ -109,6 +109,28 @@ void read_normal_mode(int c){
                     if(state.cy >= state.num_rows) state.cy = state.num_rows - 1;
                     state.dirty = 1;
                 }
+            }else if(bytes_read && second_char == 'g'){
+                bytes_read = read(STDIN_FILENO, &second_char, 1);
+                if(bytes_read && second_char == 'g'){
+                    delete_to_top();  // Deletes all lines to the top, including current
+                }
+            }else if(bytes_read && second_char == 'G'){
+                delete_to_bottom();  // Deletes all lines to the bottom, including current
+            }else if(bytes_read && isdigit(second_char)){
+                int value = second_char - '0';
+                bytes_read = read(STDIN_FILENO, &second_char, 1);
+                if(bytes_read){
+                    delete_elements(second_char, value);
+                }
+            }else if(bytes_read){
+                switch(second_char){
+                    case 'h':
+                    case 'j':
+                    case 'k':
+                    case 'l':
+                        delete_elements(second_char, 1);
+                        break;
+                }
             }
             break;
         case 'x':
@@ -405,6 +427,52 @@ void forwards_T(int c) {
             return;
         }
         ++i;
+    }
+}
+void delete_to_top() {
+    int i;
+    for(i = 0; i <= state.cy; ++i){
+        // continuously delete the first row
+        editor_delete_row(0);
+    }
+    state.cx = 0;
+    state.cy = 0;
+}
+
+void delete_to_bottom() {
+    while (state.cy < state.num_rows) {
+        editor_delete_row(state.cy);
+    }
+    if (state.cy > 0) state.cy--;
+    state.cx = 0;
+}
+
+void delete_elements(char direction, int value) {
+    int i, size;
+    switch (direction) {
+        case 'h':
+            for (i = 0; i < value && state.cx > 0; ++i) {
+                editor_delete_char();
+            }
+            break;
+        case 'l':
+            size = state.row[state.cy].size;
+            for (i = 0; i < value && state.cx < size; ++i) {
+                ++state.cx;
+                editor_delete_char();
+            }
+            break;
+        case 'j':
+            for (i = 0; i <= value && state.cy < state.num_rows; ++i) {
+                editor_delete_row(state.cy);
+            }
+            break;
+        case 'k':
+            for (i = 0; i <= value && state.cy > 0; ++i) {
+                editor_delete_row(state.cy);
+                --state.cy;
+            }
+            break;
     }
 }
 

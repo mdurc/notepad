@@ -113,6 +113,7 @@ void editor_delete_row(int row_num){
     state.row[i].chars = NULL;
     state.row[i].render = NULL;
     --state.num_rows;
+    state.dirty = 1;
 }
 
 // simply inserts character into char array. Doesn't have to worry about where the cursor is

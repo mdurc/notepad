@@ -150,5 +150,8 @@ void forwards_F(int c);
 void backwards_T(int c);
 void forwards_T(int c);
 
+void delete_to_top();
+void delete_to_bottom();
+void delete_elements(char direction, int value);
 
 #endif
