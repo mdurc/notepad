@@ -111,15 +111,15 @@ void read_normal_mode(int c){
             }else if(bytes_read && second_char == 'g'){
                 bytes_read = read(STDIN_FILENO, &second_char, 1);
                 if(bytes_read && second_char == 'g'){
-                    delete_to_top();  // Deletes all lines to the top, including current
+                    editor_delete_to_top();  // Deletes all lines to the top, including current
                 }
             }else if(bytes_read && second_char == 'G'){
-                delete_to_bottom();  // Deletes all lines to the bottom, including current
+                editor_delete_to_bottom();  // Deletes all lines to the bottom, including current
             }else if(bytes_read && isdigit(second_char)){
                 int value = second_char - '0';
                 bytes_read = read(STDIN_FILENO, &second_char, 1);
                 if(bytes_read){
-                    delete_elements(second_char, value);
+                    editor_delete_in_direction(second_char, value);
                 }
             }else if(bytes_read){
                 switch(second_char){
@@ -127,7 +127,7 @@ void read_normal_mode(int c){
                     case 'j':
                     case 'k':
                     case 'l':
-                        delete_elements(second_char, 1);
+                        editor_delete_in_direction(second_char, 1);
                         break;
                 }
             }
@@ -150,22 +150,22 @@ void read_normal_mode(int c){
             break;
         case 'F':
             if(read(STDIN_FILENO, &second_char, 1) == 1){
-                backwards_F(second_char);
+                move_backwards_F(second_char);
             }
             break;
         case 'f':
             if(read(STDIN_FILENO, &second_char, 1) == 1){
-                forwards_F(second_char);
+                move_forwards_F(second_char);
             }
             break;
         case 'T':
             if(read(STDIN_FILENO, &second_char, 1) == 1){
-                backwards_T(second_char);
+                move_backwards_T(second_char);
             }
             break;
         case 't':
             if(read(STDIN_FILENO, &second_char, 1) == 1){
-                forwards_T(second_char);
+                move_forwards_T(second_char);
             }
             break;
         case 'w':
@@ -198,7 +198,6 @@ void read_insert_mode(int c){
 }
 
 void read_visual_line_mode(int c){
-    fprintf(stderr, "cy: %d\n", state.cy);
     if(!state.row){
         return;
     }
@@ -375,7 +374,7 @@ void move_previous_word(){
     }
 }
 
-void backwards_F(int c) {
+void move_backwards_F(int c) {
     char* p = state.row[state.cy].chars;
     int i = state.cx;
 
@@ -388,7 +387,7 @@ void backwards_F(int c) {
     }
 }
 
-void forwards_F(int c) {
+void move_forwards_F(int c) {
     char* p = state.row[state.cy].chars;
     int i = state.cx + 1;
     int size = state.row[state.cy].size;
@@ -402,7 +401,7 @@ void forwards_F(int c) {
     }
 }
 
-void backwards_T(int c) {
+void move_backwards_T(int c) {
     char* p = state.row[state.cy].chars;
     int i = state.cx;
 
@@ -415,7 +414,7 @@ void backwards_T(int c) {
     }
 }
 
-void forwards_T(int c) {
+void move_forwards_T(int c) {
     char* p = state.row[state.cy].chars;
     int i = state.cx + 1;
     int size = state.row[state.cy].size;
@@ -428,7 +427,7 @@ void forwards_T(int c) {
         ++i;
     }
 }
-void delete_to_top() {
+void editor_delete_to_top() {
     int i;
     for(i = 0; i <= state.cy; ++i){
         // continuously delete the first row
@@ -438,7 +437,7 @@ void delete_to_top() {
     state.cy = 0;
 }
 
-void delete_to_bottom() {
+void editor_delete_to_bottom() {
     while (state.cy < state.num_rows) {
         editor_delete_row(state.cy);
     }
@@ -446,7 +445,7 @@ void delete_to_bottom() {
     state.cx = 0;
 }
 
-void delete_elements(char direction, int value) {
+void editor_delete_in_direction(char direction, int value) {
     int i, size;
     switch (direction) {
         case 'h':

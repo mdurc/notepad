@@ -135,6 +135,10 @@ void editor_update_syntax(erow* row);
 int editor_syntax_to_color(uint8_t hl);
 int is_separator(int c);
 
+void editor_delete_to_top();
+void editor_delete_to_bottom();
+void editor_delete_in_direction(char direction, int value);
+
 // VIM:
 void read_normal_mode(int c);
 void read_insert_mode(int c);
@@ -145,13 +149,10 @@ void move_previous_word();
 void move_next_word();
 void move_end_next_word();
 
-void backwards_F(int c);
-void forwards_F(int c);
-void backwards_T(int c);
-void forwards_T(int c);
+void move_backwards_F(int c);
+void move_forwards_F(int c);
+void move_backwards_T(int c);
+void move_forwards_T(int c);
 
-void delete_to_top();
-void delete_to_bottom();
-void delete_elements(char direction, int value);
 
 #endif
