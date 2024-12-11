@@ -1,4 +1,10 @@
 
 
 
-this is a test
+
+#include <stdio.h>
+int main(){
+	int x = 99;
+	printf("%d", x);
+	return 0;
+}

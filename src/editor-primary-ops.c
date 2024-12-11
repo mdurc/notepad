@@ -43,6 +43,7 @@ void editor_insert_char(char c){
         editor_insert_row(state.num_rows, "", 0);
     }
 
+    editor_save_row_before_change(&state.row[state.cy]);
     editor_row_insert_char(&state.row[state.cy], state.cx, c);
     ++state.cx;
     state.dirty = 1;
@@ -50,7 +51,7 @@ void editor_insert_char(char c){
 
 // handles newline characters by creating a new row, possibly splitting the current row.
 // adjusts the cursor positions as well.
-void editor_insert_newline(){
+void editor_insert_newline(){ /* TODO: include undo on deleting newlines, adding newlines, etc */
     if(state.cx == 0){
         // we are newlining at the start of a line
         editor_insert_row(state.cy, "", 0);
@@ -74,6 +75,7 @@ void editor_insert_newline(){
 void editor_delete_char(){
     if (state.cy == state.num_rows) return; // on a new empty file
     erow* curr = &state.row[state.cy];
+    editor_save_row_before_change(curr);
     if(state.cx > 0){
         // technically the cursor deletes the character BEHIND the currently highlighted one
         // If we used 'x' in vim, though, it would delete the CURRENT character at cx.
@@ -91,6 +93,7 @@ void editor_delete_char(){
 
 
 void editor_delete_word() {
+    editor_save_row_before_change(&state.row[state.cy]);
     char* p = state.row[state.cy].chars;
     int i = state.cx;
     int size = state.row[state.cy].size;

@@ -78,6 +78,7 @@ struct stack {
     int stack_size;
     int mem_size;
     // point to a series of state.row's
+    // TODO: implement keeping track of cursor positions for each undo state
     erow* rows;
     // note that rows keep track of their index, so we
     // dont have to keep track of where we should overwrite when undoing
