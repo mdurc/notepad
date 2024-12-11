@@ -98,6 +98,7 @@ void editor_free_row(erow* row){
 // when backspace on an empty row
 void editor_delete_row(int row_num){
     if (row_num < 0 || row_num >= state.num_rows) return;
+    if(!state.undoing) editor_push_undo(&state.row[state.cy], DELETE_ROW);
     // free the memory
     editor_free_row(&state.row[row_num]);
 

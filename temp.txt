@@ -1,10 +1,7 @@
 
-
-
-
 #include <stdio.h>
 int main(){
-	int x = 99;
-	printf("%d", x);
-	return 0;
+int x = 69;
+printf("%d", x);
+return 0;
 }

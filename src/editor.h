@@ -55,6 +55,14 @@ enum editor_highlight{
     HL_VISUAL
 };
 
+enum UNDO_ACTION{
+    MODIFY_ROW = 0,
+    DELETE_ROW,
+    MERGE_ROW_UP,
+    SPLIT_ROW_DOWN,
+    NEWLINE_ABOVE
+};
+
 // append buffer: what is written on every refresh
 struct abuf {
     char* b;
@@ -74,14 +82,16 @@ typedef struct erow {
     uint8_t* hl; // what color to apply to each character in render (from editor_highlight enum)
 } erow;
 
+typedef struct stack_entry {
+    erow row;
+    int cx, cy;
+    int action; // enum UNDO_ACTION
+} stack_entry;
 struct stack {
     int stack_size;
     int mem_size;
-    // point to a series of state.row's
-    // TODO: implement keeping track of cursor positions for each undo state
-    erow* rows;
-    // note that rows keep track of their index, so we
-    // dont have to keep track of where we should overwrite when undoing
+    // pointer to array of stack entries
+    stack_entry* saves;
 };
 
 struct state {
@@ -94,6 +104,7 @@ struct state {
     int screen_cols;
     int num_rows;
     struct stack undo;
+    int undoing; // flag to not add anything to undo stack if 1
     erow* row;
     int dirty;  // flag for if current file has been modified
     char* filename;
@@ -150,6 +161,8 @@ int is_separator(int c);
 void editor_delete_to_top();
 void editor_delete_to_bottom();
 void editor_delete_in_direction(char direction, int value);
+void editor_delete_to_eol();
+
 
 // VIM:
 void read_normal_mode(int c);
@@ -167,12 +180,15 @@ void move_backwards_T(int c);
 void move_forwards_T(int c);
 
 // UNDO:
-erow editor_deep_copy_row(const erow* src);
-void editor_push_undo(erow* row);
-void editor_save_row_before_change(erow* row);
+stack_entry editor_deep_copy_row(const erow* src, int action);
+erow editor_copy_row(const erow* src);
+void editor_split_row(int row_idx);
+void editor_merge_row_below(int row_idx);
+void editor_push_undo(erow* row, int action);
 void editor_undo();
 void editor_init_undo_stack();
 void editor_free_undo_stack();
+void editor_free_stack_entry(stack_entry* entry);
 
 
 #endif

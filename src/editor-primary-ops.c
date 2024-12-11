@@ -13,6 +13,7 @@ void init_editor(){
     state.coloff = 0;
     state.num_rows = 0;
     state.row = NULL;
+    state.undoing = 0;
     state.dirty = 0;
     state.filename = NULL;
     state.statusmsg[0] = '\0';
@@ -24,7 +25,7 @@ void init_editor(){
 }
 
 void end_editor(){
-    fprintf(stderr, "Freeing all memory\n");
+    //fprintf(stderr, "Freeing all memory\n");
     for(int i=0;i<state.num_rows;++i){
         editor_free_row(state.row+i);
     }
@@ -43,7 +44,7 @@ void editor_insert_char(char c){
         editor_insert_row(state.num_rows, "", 0);
     }
 
-    editor_save_row_before_change(&state.row[state.cy]);
+    if(!state.undoing) editor_push_undo(&state.row[state.cy], MODIFY_ROW);
     editor_row_insert_char(&state.row[state.cy], state.cx, c);
     ++state.cx;
     state.dirty = 1;
@@ -51,12 +52,14 @@ void editor_insert_char(char c){
 
 // handles newline characters by creating a new row, possibly splitting the current row.
 // adjusts the cursor positions as well.
-void editor_insert_newline(){ /* TODO: include undo on deleting newlines, adding newlines, etc */
+void editor_insert_newline(){
     if(state.cx == 0){
         // we are newlining at the start of a line
+        if(!state.undoing) editor_push_undo(&state.row[state.cy], NEWLINE_ABOVE);
         editor_insert_row(state.cy, "", 0);
     }else{
         erow *row = &state.row[state.cy];
+        if(!state.undoing) editor_push_undo(row, SPLIT_ROW_DOWN);
         // The string on the new line will be pointed to at: row->chars + state.cx
         // With a length of row->size - state.cx
         editor_insert_row(state.cy + 1, &row->chars[state.cx], row->size - state.cx);
@@ -75,17 +78,28 @@ void editor_insert_newline(){ /* TODO: include undo on deleting newlines, adding
 void editor_delete_char(){
     if (state.cy == state.num_rows) return; // on a new empty file
     erow* curr = &state.row[state.cy];
-    editor_save_row_before_change(curr);
     if(state.cx > 0){
         // technically the cursor deletes the character BEHIND the currently highlighted one
         // If we used 'x' in vim, though, it would delete the CURRENT character at cx.
+        if(!state.undoing) editor_push_undo(curr, MODIFY_ROW);
         editor_row_delete_char(curr, state.cx-1);
         --state.cx;
     }else if(state.cy > 0){
         // then we are at the start of the line, and not at the beginning of file
+
+        --curr->idx; // so that when we undo, we arent out of bounds bc we are deleting the current row
+        if(!state.undoing) editor_push_undo(curr, MERGE_ROW_UP);
+        ++curr->idx;
+
         state.cx = state.row[state.cy-1].size;
         editor_row_append_string(&state.row[state.cy-1], curr->chars, curr->size);
+
+        // shouldnt count this deletion as an undo, might want to find a better
+        // way to do this, but for now im just going to leave it like this
+        state.undoing = 1;
         editor_delete_row(state.cy);
+        state.undoing = 0;
+
         --state.cy;
     }
     state.dirty = 1;
@@ -93,7 +107,6 @@ void editor_delete_char(){
 
 
 void editor_delete_word() {
-    editor_save_row_before_change(&state.row[state.cy]);
     char* p = state.row[state.cy].chars;
     int i = state.cx;
     int size = state.row[state.cy].size;

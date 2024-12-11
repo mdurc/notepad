@@ -78,7 +78,9 @@ void read_normal_mode(int c){
             state.mode = INSERT_MODE;
             break;
         case 'a':
-            ++state.cx;
+            if(state.cx < state.row[state.cy].size){
+                ++state.cx;
+            }
             state.mode = INSERT_MODE;
             break;
         case 'O':
@@ -134,6 +136,9 @@ void read_normal_mode(int c){
                         break;
                 }
             }
+            break;
+        case 'D':
+            editor_delete_to_eol();
             break;
         case 'x':
             if((state.cx + 1) <= state.row[state.cy].size){
@@ -260,6 +265,7 @@ void read_command_mode(){
     if(query && (strlen(query) == 1 && (*query == 'w' || *query == 'W'))){
         editor_save();
     }else if(query && (strlen(query) == 1 && (*query == 'q' || *query == 'Q'))){
+        // TODO: warning from ctrl c that is already implemented
         exit(0);
     }else{
         state.mode = NORMAL_MODE;
@@ -477,3 +483,12 @@ void editor_delete_in_direction(char direction, int value) {
     }
 }
 
+void editor_delete_to_eol(){
+    erow* row = &state.row[state.cy];
+    int pos = state.cx == 0? 0: state.cx;
+    state.cx = row->size;
+    while(state.cx != pos){
+        editor_delete_char();
+    }
+    state.dirty = 1;
+}
