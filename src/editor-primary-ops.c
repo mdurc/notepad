@@ -21,7 +21,7 @@ void init_editor(){
     if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
     state.screen_rows -= 2; // room for status bar and msg
 
-    editor_init_undo_stack();
+    editor_init_undo_redo_stacks();
 }
 
 void end_editor(){
@@ -33,7 +33,7 @@ void end_editor(){
         free(state.filename);
         state.filename = NULL;
     }
-    editor_free_undo_stack();
+    editor_free_stack(&state.undo);
 }
 
 
@@ -44,7 +44,7 @@ void editor_insert_char(char c){
         editor_insert_row(state.num_rows, "", 0);
     }
 
-    if(!state.undoing) editor_push_undo(&state.row[state.cy], MODIFY_ROW);
+    if(!state.undoing) editor_push_to_stack(&state.undo, &state.row[state.cy], MODIFY_ROW);
     editor_row_insert_char(&state.row[state.cy], state.cx, c);
     ++state.cx;
     state.dirty = 1;
@@ -55,11 +55,11 @@ void editor_insert_char(char c){
 void editor_insert_newline(){
     if(state.cx == 0){
         // we are newlining at the start of a line
-        if(!state.undoing) editor_push_undo(&state.row[state.cy], NEWLINE_ABOVE);
+        if(!state.undoing) editor_push_to_stack(&state.undo, &state.row[state.cy], NEWLINE_ABOVE);
         editor_insert_row(state.cy, "", 0);
     }else{
         erow *row = &state.row[state.cy];
-        if(!state.undoing) editor_push_undo(row, SPLIT_ROW_DOWN);
+        if(!state.undoing) editor_push_to_stack(&state.undo, row, SPLIT_ROW_DOWN);
         // The string on the new line will be pointed to at: row->chars + state.cx
         // With a length of row->size - state.cx
         editor_insert_row(state.cy + 1, &row->chars[state.cx], row->size - state.cx);
@@ -81,14 +81,14 @@ void editor_delete_char(){
     if(state.cx > 0){
         // technically the cursor deletes the character BEHIND the currently highlighted one
         // If we used 'x' in vim, though, it would delete the CURRENT character at cx.
-        if(!state.undoing) editor_push_undo(curr, MODIFY_ROW);
+        if(!state.undoing) editor_push_to_stack(&state.undo, curr, MODIFY_ROW);
         editor_row_delete_char(curr, state.cx-1);
         --state.cx;
     }else if(state.cy > 0){
         // then we are at the start of the line, and not at the beginning of file
 
         --curr->idx; // so that when we undo, we arent out of bounds bc we are deleting the current row
-        if(!state.undoing) editor_push_undo(curr, MERGE_ROW_UP);
+        if(!state.undoing) editor_push_to_stack(&state.undo, curr, MERGE_ROW_UP);
         ++curr->idx;
 
         state.cx = state.row[state.cy-1].size;

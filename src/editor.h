@@ -60,7 +60,7 @@ enum UNDO_ACTION{
     DELETE_ROW,
     MERGE_ROW_UP,
     SPLIT_ROW_DOWN,
-    NEWLINE_ABOVE
+    NEWLINE_ABOVE,
 };
 
 // append buffer: what is written on every refresh
@@ -87,6 +87,7 @@ typedef struct stack_entry {
     int cx, cy;
     int action; // enum UNDO_ACTION
 } stack_entry;
+
 struct stack {
     int stack_size;
     int mem_size;
@@ -104,6 +105,7 @@ struct state {
     int screen_cols;
     int num_rows;
     struct stack undo;
+    struct stack redo;
     int undoing; // flag to not add anything to undo stack if 1
     erow* row;
     int dirty;  // flag for if current file has been modified
@@ -184,10 +186,11 @@ stack_entry editor_deep_copy_row(const erow* src, int action);
 erow editor_copy_row(const erow* src);
 void editor_split_row(int row_idx);
 void editor_merge_row_below(int row_idx);
-void editor_push_undo(erow* row, int action);
+void editor_push_to_stack(struct stack* s, erow* row, int action);
 void editor_undo();
-void editor_init_undo_stack();
-void editor_free_undo_stack();
+void editor_redo();
+void editor_init_undo_redo_stacks();
+void editor_free_stack(struct stack* s);
 void editor_free_stack_entry(stack_entry* entry);
 
 

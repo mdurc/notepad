@@ -31,6 +31,9 @@ void read_normal_mode(int c){
                 state.cy = state.num_rows - 1;
             }
             break;
+        case CTRL_KEY('r'):
+            editor_redo();
+            break;
         case CTRL_KEY('u'):
             if(state.cy >= 10){
                 state.cy -= 10;
