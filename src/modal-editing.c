@@ -38,6 +38,9 @@ void read_normal_mode(int c){
                 state.cy = 0;
             }
             break;
+        case 'u':
+            editor_undo();
+            break;
         case '0':
             state.cx = 0;
             break;

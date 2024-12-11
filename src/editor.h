@@ -74,6 +74,15 @@ typedef struct erow {
     uint8_t* hl; // what color to apply to each character in render (from editor_highlight enum)
 } erow;
 
+struct stack {
+    int stack_size;
+    int mem_size;
+    // point to a series of state.row's
+    erow* rows;
+    // note that rows keep track of their index, so we
+    // dont have to keep track of where we should overwrite when undoing
+};
+
 struct state {
     int mode;   // for modal editing
     int cx, cy; // cursor positions (now relative to the file currently being read)
@@ -83,6 +92,7 @@ struct state {
     int screen_rows;
     int screen_cols;
     int num_rows;
+    struct stack undo;
     erow* row;
     int dirty;  // flag for if current file has been modified
     char* filename;
@@ -97,6 +107,7 @@ extern struct state state;
 void error(const char* s);
 int get_cursor_position(int* rows, int* cols);
 int get_window_size(int* rows, int* cols);
+void end_editor();
 void disable_raw();
 void enable_raw();
 int editor_row_cx_to_rx(erow* row, int cx);
@@ -153,6 +164,14 @@ void move_backwards_F(int c);
 void move_forwards_F(int c);
 void move_backwards_T(int c);
 void move_forwards_T(int c);
+
+// UNDO:
+erow editor_deep_copy_row(const erow* src);
+void editor_push_undo(erow* row);
+void editor_save_row_before_change(erow* row);
+void editor_undo();
+void editor_init_undo_stack();
+void editor_free_undo_stack();
 
 
 #endif

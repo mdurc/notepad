@@ -54,6 +54,8 @@ void disable_raw(){
     if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &state.term_defaults) == -1){
         error("tcsetattr");
     }
+
+    end_editor();
 }
 
 // disables flags for cannonical mode so we can read bytes as they are entered in stdin and don't have to wait for "enter"

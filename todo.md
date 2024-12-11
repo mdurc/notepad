@@ -10,4 +10,5 @@
 [ ] - Line numbers
 [ ] - Option for soft indent (tabs turn into 4 spaces)
 [ ] - Auto indent
+[ ] - Undo-redo (stack based, investigate tree)
 [ ] - Paste from CTRL-v

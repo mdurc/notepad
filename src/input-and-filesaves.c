@@ -90,9 +90,10 @@ void editor_keypress_handler(){
     }
 
     if(c != ':'){
-        editor_set_status_msg(state.mode == NORMAL_MODE    ? "-- NORMAL --"
-                : state.mode == INSERT_MODE  ? "-- INSERT --"
-                : state.mode == VISUAL_MODE  ? "-- VISUAL --" : "");
+        if(state.mode != NORMAL_MODE){
+            editor_set_status_msg(state.mode == INSERT_MODE  ? "-- INSERT --"
+                                : state.mode == VISUAL_MODE  ? "-- VISUAL --" : "");
+        }
     }
 
 

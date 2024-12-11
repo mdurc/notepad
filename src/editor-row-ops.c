@@ -88,9 +88,11 @@ void editor_insert_row(int row_num, char* line, size_t len){
 
 // freeing memory of a given row, when the row is deleted
 void editor_free_row(erow* row){
-    free(row->render);
-    free(row->chars);
-    free(row->hl);
+    if(row){
+        if(row->render) free(row->render);
+        if(row->chars) free(row->chars);
+        if(row->hl) free(row->hl);
+    }
 }
 
 // when backspace on an empty row

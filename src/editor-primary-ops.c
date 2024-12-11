@@ -19,6 +19,20 @@ void init_editor(){
     state.statusmsg_time = 0;
     if(get_window_size(&state.screen_rows, &state.screen_cols) == -1) error("get_window_size");
     state.screen_rows -= 2; // room for status bar and msg
+
+    editor_init_undo_stack();
+}
+
+void end_editor(){
+    fprintf(stderr, "Freeing all memory\n");
+    for(int i=0;i<state.num_rows;++i){
+        editor_free_row(state.row+i);
+    }
+    if(state.filename != NULL){
+        free(state.filename);
+        state.filename = NULL;
+    }
+    editor_free_undo_stack();
 }
 
 
