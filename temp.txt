@@ -1,7 +1,7 @@
 
 #include <stdio.h>
-int main this is a qucik testo ituhweiunwekjnfwe(){
-int x okay budd = 69;
-printf("%d", x);
-return 0;
+int main(void){
+	int x  = 69;
+	printf("%d", x);
+	return 0;
 }

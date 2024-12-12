@@ -81,21 +81,29 @@ void read_normal_mode(int c){
             state.mode = INSERT_MODE;
             break;
         case 'a':
-            if(state.cx < state.row[state.cy].size){
+            if(state.cy < state.num_rows && state.cx < state.row[state.cy].size){
                 ++state.cx;
             }
             state.mode = INSERT_MODE;
             break;
         case 'O':
+            if(state.cy >= state.num_rows){
+                editor_insert_row(state.num_rows, "", 0);
+                state.mode = INSERT_MODE;
+                break;
+            }
             state.cx = 0;
             editor_insert_newline();
             --state.cy;
             state.mode = INSERT_MODE;
             break;
         case 'o':
-            if(state.cy < state.num_rows){
-                state.cx = state.row[state.cy].size;
+            if(state.cy >= state.num_rows){
+                editor_insert_row(state.num_rows, "", 0);
+                state.mode = INSERT_MODE;
+                break;
             }
+            state.cx = state.row[state.cy].size;
             editor_insert_newline();
             state.mode = INSERT_MODE;
             break;
@@ -144,14 +152,14 @@ void read_normal_mode(int c){
             editor_delete_to_eol();
             break;
         case 'x':
-            if((state.cx + 1) <= state.row[state.cy].size){
+            if(state.cy<state.num_rows && (state.cx + 1) <= state.row[state.cy].size){
                 ++state.cx;
                 editor_delete_char();
             }
             break;
         case 'r':
             if(read(STDIN_FILENO, &second_char, 1) == 1){
-                if((state.cx + 1) <= state.row[state.cy].size){
+                if(state.cy<state.num_rows && (state.cx + 1) <= state.row[state.cy].size){
                     ++state.cx;
                     editor_delete_char();
                 }
@@ -198,7 +206,11 @@ void read_insert_mode(int c){
         editor_delete_char();
         break;
     case '\r': // enter
-        editor_insert_newline();
+        if(state.cy >= state.num_rows){ // new file
+            editor_insert_row(state.num_rows, "", 0);
+        }else{
+            editor_insert_newline();
+        }
         break;
     case '\t': // tab
         editor_insert_char(c);
@@ -209,9 +221,7 @@ void read_insert_mode(int c){
 }
 
 void read_visual_line_mode(int c){
-    if(!state.row){
-        return;
-    }
+    if(!state.row) return;
     static uint8_t* saved_line_hl = NULL;
     int len = state.row[state.cy].size;
     if(!saved_line_hl){
@@ -280,6 +290,7 @@ void read_command_mode(){
 
 // Moving cursor on non-insertion/deletion of characters. Purely movement characters.
 void move_cursor(int c){
+    if(state.cy >= state.num_rows) return;
     erow* row = (state.cy >= state.num_rows) ? NULL : &state.row[state.cy];
     switch (c) {
         case 'h':
@@ -466,6 +477,7 @@ void editor_delete_in_direction(char direction, int value) {
             }
             break;
         case 'l':
+            if(state.cy >= state.num_rows) break;
             size = state.row[state.cy].size;
             for (i = 0; i < value && state.cx < size; ++i) {
                 ++state.cx;
@@ -487,6 +499,7 @@ void editor_delete_in_direction(char direction, int value) {
 }
 
 void editor_delete_to_eol(){
+    if(state.cy >= state.num_rows) return;
     erow* row = &state.row[state.cy];
     int pos = state.cx == 0? 0: state.cx;
     state.cx = row->size;

@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra
-PROGRAM = notes
+PROGRAM = notes.out
 
 SRC_DIR = ./src
 BUILD_DIR = ./build
